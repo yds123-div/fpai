@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fpai-backend"
+version = "0.1.0"
+description = "金融产品解析智能体后端（财富业务全场景智能问答与辅助决策）"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+authors = [{ name = "FPAI Team" }]
+dependencies = [
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "python-multipart>=0.0.6",
+    "python-dotenv>=1.0.0",
+    "pymysql>=1.1.0",
+    "redis>=5.0.0",
+    "minio>=7.2.0",
+    "pymilvus>=2.3.0",
+    "httpx>=0.26.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.23.0",
+    "httpx>=0.26.0",
+]
+agent = [
+    "agentscope>=0.0.8",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["api*", "orchestrator*", "agents*", "retrieval*", "data_access*", "compliance*", "audit*", "feedback*", "ingestion*", "parsing*", "model_gateway*", "config*", "pkg*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["../tests"]
+pythonpath = ["."]
+markers = ["integration: marks tests that require MySQL/Redis/MinIO (deselect with '-m \"not integration\"')"]

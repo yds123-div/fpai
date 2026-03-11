@@ -1,0 +1,31 @@
+# 金融产品解析智能体后端依赖（一期）
+# Python 3.10+
+
+# API 与异步
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+
+# 多智能体框架（T024+ 编排与智能体时使用）
+agentscope>=1.0.16
+
+# 数据与存储（T003+ 按任务逐步引入）
+pymysql>=1.1.0
+redis>=5.0.0
+pymilvus>=2.3.0
+minio>=7.2.0
+
+# HTTP 客户端（Model Gateway 调用内网 API）
+httpx>=0.26.0
+
+# 环境与配置
+python-dotenv>=1.0.0
+
+# 认证（T027a）：密码哈希使用 bcrypt，避免 passlib 与 bcrypt 版本不兼容
+bcrypt>=4.0.0
+PyJWT>=2.8.0
+
+# 开发与测试（可选）
+# pytest>=7.0
+# pytest-asyncio>=0.23.0
+# httpx>=0.26.0

@@ -1,0 +1,35 @@
+{
+  "name": "fpai-frontend",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "金融产品智能问答与辅助决策系统",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vue-tsc && vite build",
+    "preview": "vite preview",
+    "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix --ignore-path .gitignore"
+  },
+  "dependencies": {
+    "@ant-design/icons-vue": "^7.0.1",
+    "ant-design-vue": "^4.1.1",
+    "axios": "^1.6.2",
+    "crypto-js": "^4.2.0",
+    "dayjs": "^1.11.10",
+    "markdown-it": "^14.1.0",
+    "pinia": "^2.1.7",
+    "vue": "^3.4.0",
+    "vue-router": "^4.2.5"
+  },
+  "devDependencies": {
+    "@types/crypto-js": "^4.2.2",
+    "@types/markdown-it": "^14.1.2",
+    "@vitejs/plugin-vue": "^5.0.0",
+    "@vue/eslint-config-typescript": "^12.0.0",
+    "@vue/tsconfig": "^0.5.1",
+    "eslint": "^8.56.0",
+    "eslint-plugin-vue": "^9.19.2",
+    "sass": "^1.69.5",
+    "typescript": "~5.3.0",
+    "vite": "^5.0.8"
+  }
+}

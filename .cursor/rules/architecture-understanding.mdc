@@ -1,0 +1,22 @@
+---
+description: 用于从 `.cursor/memory/architecture.md` 理解系统架构的规则
+globs: 
+alwaysApply: false
+---
+# 架构理解
+READ_ARCHITECTURE: |
+  File: `.cursor/memory/architecture.md`
+  必须解析：
+  1. 加载并解析完整的 Mermaid 图
+  2. 提取并理解：
+     - 模块边界与关系
+     - 数据流模式
+     - 系统接口
+     - 组件依赖
+  3. 任何改动都要对照架构约束进行校验
+  4. 确保新增代码保持既定的关注点分离（Separation of Concerns）
+  
+  错误处理：
+  1. 若文件不存在：停止并通知用户
+  2. 若图解析失败：请求用户澄清/补充
+  3. 若发现架构违背：提示用户风险并给出警告

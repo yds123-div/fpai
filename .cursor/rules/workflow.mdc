@@ -1,0 +1,25 @@
+---
+description: AI 软件开发流程与工作流规则
+globs: 
+alwaysApply: true
+---
+
+# AI 软件开发流程
+
+推荐工作流（从需求到上线）：
+
+1. **需求输入** → 业务需求、用户故事
+2. **PRD 生成** → 使用 product-manager / prd-generator，执行 `.cursor/commands/generate-prd.md`，输出到 `.cursor/memory/prd.md`
+3. **系统架构** → 使用 system-architect / tech-architect，执行 `.cursor/commands/generate-architecture.md`，输出到 `.cursor/memory/architecture.md`
+4. **技术设计** → API/数据/模块设计，执行 `.cursor/commands/generate-design.md`，输出到 `.cursor/memory/technical_design.md`、`.cursor/memory/decisions.md`
+5. **项目上下文**（可选但推荐）→ 填写 `.cursor/memory/project_context.md`（技术栈、目录、命令），便于实现与部署一致
+6. **任务拆解** → 使用 task-planner，执行 `.cursor/commands/generate-tasks.md`，输出到 `.cursor/memory/tasks.md`
+7. **编码实现** → 使用 backend-engineer / frontend-engineer 等，执行 `.cursor/commands/implement-feature.md`，按 `.cursor/memory/tasks.md` 逐项完成
+8. **测试** → 使用 test-engineer，执行 `.cursor/commands/run-tests.md`（实现后回归、发布前全量）
+9. **部署** → 使用 devops-engineer / ci-cd-engineer，执行 `.cursor/commands/deploy.md`
+
+## 在对话中的用法
+
+- 先读取 `.cursor/memory/` 下相关文件以保持上下文（含 project_context.md 若存在）
+- 按阶段切换对应 skill 或直接引用对应 command 文档执行
+- 重要产出写入 `.cursor/memory/`，便于后续步骤和会话复用

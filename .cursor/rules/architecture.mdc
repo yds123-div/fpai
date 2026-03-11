@@ -1,0 +1,31 @@
+---
+description: 架构决策与设计约束
+globs: 
+alwaysApply: true
+---
+
+# 架构规则
+
+## 设计原则
+
+- 架构风格与项目一致：单体 / 微服务 / 事件驱动等，参考 `.cursor/memory/architecture.md`
+- 技术选型与 `.cursor/memory/technical_design.md` 和 `.cursor/memory/decisions.md` 一致
+- 新增服务或模块需符合现有边界与契约
+
+## 产出物
+
+- 系统架构 → `.cursor/memory/architecture.md`
+- 技术设计 → `.cursor/memory/technical_design.md`
+- 重要决策及原因 → `.cursor/memory/decisions.md`
+- 项目技术栈与目录约定 → `.cursor/memory/project_context.md`（实现与部署时优先参照）
+
+## 与 Skills 配合
+
+- 系统级设计使用 `.cursor/skills/architecture/system-architect.md`
+- 技术架构使用 `.cursor/skills/architecture/tech-architect.md`
+- 微服务拆分使用 `.cursor/skills/architecture/microservice-architect.md`
+- AI 系统使用 `.cursor/skills/architecture/ai-system-architect.md`
+
+## 图示
+
+- 使用 Mermaid 绘制架构图、流程图、序列图，便于版本管理与展示

@@ -1,0 +1,43 @@
+// 主色调 - 蓝色系
+// 注意：SCSS 变量引用 CSS 变量，运行时通过 JavaScript 动态修改 CSS 变量
+$primary-color: var(--primary-color, #1890ff);        // 主蓝色（按钮、链接等）
+$primary-color-hover: var(--primary-color-hover, #40a9ff);  // 主蓝色悬停
+$primary-color-active: var(--primary-color-active, #096dd9); // 主蓝色激活
+
+// 强调色 - 蓝色发光效果
+$accent-color: var(--accent-color, #00d4ff);         // 强调蓝色（发光效果）
+$accent-color-light: var(--accent-color-light, #40a9ff);   // 浅强调蓝
+
+// 深色背景
+$dark-bg: var(--dark-bg, #001529);              // 深蓝背景（登录页左侧）
+$dark-bg-alt: var(--dark-bg-alt, #0a1929);          // 深灰背景（备用）
+
+// 浅色背景
+$light-bg: var(--light-bg, #ffffff);             // 白色背景
+$light-bg-gray: var(--light-bg-gray, #f5f5f5);        // 浅灰背景
+$light-bg-hover: var(--light-bg-hover, #e6f7ff);       // 悬停背景（浅蓝）
+
+// 文字颜色
+$text-primary: var(--text-primary, #262626);         // 主要文字（深色）
+$text-secondary: var(--text-secondary, #333333);        // 次要文字
+$text-tertiary: var(--text-tertiary, #8c8c8c);        // 辅助文字（灰色）
+$text-disabled: var(--text-disabled, #bfbfbf);        // 禁用文字
+
+// 边框颜色
+$border-color: var(--border-color, #e8e8e8);         // 默认边框
+$border-color-light: var(--border-color-light, #f0f0f0);   // 浅边框
+
+// 状态颜色
+$success-color: var(--success-color, #52c41a);        // 成功（绿色）
+$warning-color: var(--warning-color, #faad14);        // 警告（橙色）
+$error-color: var(--error-color, #ff4d4f);          // 错误/危险（红色）
+$info-color: var(--info-color, #1890ff);           // 信息（蓝色）
+
+// 阴影
+$shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
+$shadow-md: 0 4px 12px rgba(0, 0, 0, 0.12);
+$shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.16);
+
+// 布局尺寸
+$sidebar-width: 240px;          // 侧边栏宽度
+$header-height: 64px;            // 头部高度
