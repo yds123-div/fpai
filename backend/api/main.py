@@ -28,6 +28,8 @@ from api.routes import chat as chat_routes
 from api.routes import compare_recommend_report as compare_recommend_report_routes
 from api.routes import evidence_feedback_products_sessions as evidence_feedback_products_sessions_routes
 from api.routes import documents as documents_routes
+from api.routes import knowledge as knowledge_routes
+from api.routes import models as models_routes
 from pkg.codes import ErrorCode, envelope, message_for
 from pkg.logger import configure_logging, get_logger
 
@@ -103,6 +105,8 @@ app.include_router(chat_routes.router, prefix="/api/v1")
 app.include_router(compare_recommend_report_routes.router, prefix="/api/v1")
 app.include_router(evidence_feedback_products_sessions_routes.router, prefix="/api/v1")
 app.include_router(documents_routes.router, prefix="/api/v1")
+app.include_router(knowledge_routes.router, prefix="/api/v1")
+app.include_router(models_routes.router, prefix="/api/v1")
 
 @app.get("/api/v1")
 def api_root():

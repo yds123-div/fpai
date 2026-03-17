@@ -1,6 +1,24 @@
 <template>
   <div class="chat-view">
-    <a-typography-title :level="4" style="margin-bottom: 16px">智能对话</a-typography-title>
+    <div class="chat-head">
+      <a-typography-title :level="4" style="margin: 0">智能对话</a-typography-title>
+      <a-select
+        v-model:value="selectedKnowledgeBase"
+        :options="knowledgeBaseOptions"
+        placeholder="选择知识库（用于其它问题检索）"
+        style="min-width: 260px"
+        allow-clear
+        show-search
+        :filter-option="filterOption"
+      />
+      <a-select
+        v-model:value="selectedModel"
+        :options="modelOptions"
+        placeholder="选择模型"
+        style="min-width: 220px"
+        allow-clear
+      />
+    </div>
 
     <div class="message-list" ref="listRef">
       <template v-for="msg in messages" :key="msg.id">
@@ -60,8 +78,10 @@
 </template>
 
 <script setup>
-import { ref, nextTick } from 'vue'
+import { ref, nextTick, onMounted } from 'vue'
 import { postChatStream } from '@/api/chat'
+import { listModels } from '@/api/models'
+import { listKnowledgeBases } from '@/api/knowledge'
 
 const listRef = ref(null)
 const messages = ref([])
@@ -71,8 +91,51 @@ const loading = ref(false)
 const errorMsg = ref('')
 const streamingContent = ref('')
 const streamCitations = ref([])
+const selectedModel = ref()
+const modelOptions = ref([])
+const selectedKnowledgeBase = ref()
+const knowledgeBaseOptions = ref([])
 
 let abortStream = null
+
+function filterOption(input, option) {
+  const v = (input || '').toLowerCase()
+  const label = (option?.label || '').toLowerCase()
+  const value = (String(option?.value || '')).toLowerCase()
+  return label.includes(v) || value.includes(v)
+}
+
+async function loadModels() {
+  try {
+    const res = await listModels(true)
+    const items = Array.isArray(res.data?.items) ? res.data.items : []
+    // 下拉展示配置名，实际传 model_id（后端按该配置创建模型调用）
+    modelOptions.value = items.map((m) => ({ label: m.name, value: m.id }))
+    if (!selectedModel.value && modelOptions.value.length) selectedModel.value = modelOptions.value[0].value
+  } catch (e) {
+    console.error(e)
+    modelOptions.value = []
+  }
+}
+
+async function loadKnowledgeBases() {
+  try {
+    const res = await listKnowledgeBases(true)
+    const items = Array.isArray(res.data?.items) ? res.data.items : []
+    knowledgeBaseOptions.value = items.map((it) => ({ label: it.name, value: it.uuid }))
+    if (!selectedKnowledgeBase.value && knowledgeBaseOptions.value.length) {
+      selectedKnowledgeBase.value = knowledgeBaseOptions.value[0].value
+    }
+  } catch (e) {
+    console.error(e)
+    knowledgeBaseOptions.value = []
+  }
+}
+
+onMounted(() => {
+  loadModels()
+  loadKnowledgeBases()
+})
 
 function scrollToBottom() {
   nextTick(() => {
@@ -98,7 +161,12 @@ function send() {
 
   errorMsg.value = ''
   messages.value.push({ id: Date.now(), role: 'user', content: text })
+  // a-textarea 的 @pressEnter 触发时机可能早于 v-model 更新；
+  // 这里做一次“立即清空 + 下一帧再清空”，确保输入框可见值被清掉。
   inputText.value = ''
+  nextTick(() => {
+    inputText.value = ''
+  })
   scrollToBottom()
 
   loading.value = true
@@ -109,6 +177,8 @@ function send() {
     message: text,
     sessionId: sessionId.value || undefined,
     stream: true,
+    model_id: selectedModel.value || undefined,
+    knowledge_base_id: selectedKnowledgeBase.value || undefined,
   }
 
   abortStream = postChatStream(body, {
@@ -148,6 +218,13 @@ function send() {
 </script>
 
 <style scoped>
+.chat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
 .chat-view {
   display: flex;
   flex-direction: column;

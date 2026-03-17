@@ -7,7 +7,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import os
-from typing import Any
+from typing import Any, AsyncGenerator
 
 from model_gateway.config import GatewayConfig, load_gateway_config, LLMConfig
 from model_gateway._circuit import is_open, record_failure, record_success
@@ -95,6 +95,8 @@ def _run_agentscope_in_new_loop(model: Any, messages: list[dict]) -> str:
 def llm_chat(
     messages: list[dict[str, str]],
     model: str | None = None,
+    base_url: str | None = None,
+    api_key: str | None = None,
     config: GatewayConfig | None = None,
 ) -> str:
     """
@@ -103,6 +105,12 @@ def llm_chat(
     支持熔断：key 为 "llm"。
     """
     cfg = config or load_gateway_config()
+    if model:
+        cfg.llm.model = model
+    if base_url is not None:
+        cfg.llm.base_url = base_url
+    if api_key is not None:
+        cfg.llm.api_key = api_key
     llm = cfg.llm
     key = "llm"
     if is_open(key):
@@ -132,3 +140,66 @@ def llm_chat(
                 raise
             raise ModelGatewayError(f"LLM 调用失败: {e}") from e
     raise ModelNotConfiguredError("LLM_BASE_URL 未配置且无可用的 AgentScope 模型配置")
+
+
+async def llm_chat_stream(
+    messages: list[dict[str, str]],
+    model: str | None = None,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    *,
+    max_tokens: int = 5000,
+    temperature: float = 0.3,
+) -> AsyncGenerator[str, None]:
+    """
+    OpenAI 兼容接口的真正流式（/chat/completions, stream=true）。
+    说明：
+    - 该函数不依赖 AgentScope，直接用 httpx 消费 SSE 流。
+    - 主要用于“5-Agent 仍在编排，但最终回答 token 级流式输出”的体验优化。
+    """
+    bu = (base_url or "").strip().rstrip("/")
+    if not bu:
+        return
+    # 兼容：base_url 若未以 /v1 结尾则补齐
+    if not bu.endswith("/v1"):
+        bu = bu + "/v1"
+    url = bu + "/chat/completions"
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if (api_key or "").strip():
+        headers["Authorization"] = f"Bearer {api_key.strip()}"
+    payload = {
+        "model": (model or "").strip() or "qwen3-32b",
+        "messages": messages,
+        "stream": True,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    try:
+        import httpx
+        import json as _json
+    except Exception:
+        return
+
+    async with httpx.AsyncClient(timeout=None, trust_env=False) as client:
+        async with client.stream("POST", url, headers=headers, json=payload) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line:
+                    continue
+                line = line.strip()
+                if not line.startswith("data:"):
+                    continue
+                data_str = line[5:].strip()
+                if not data_str or data_str == "[DONE]":
+                    break
+                try:
+                    obj = _json.loads(data_str)
+                except Exception:
+                    continue
+                choices = obj.get("choices") or []
+                if not choices:
+                    continue
+                delta = choices[0].get("delta") or {}
+                content = delta.get("content")
+                if content:
+                    yield str(content)

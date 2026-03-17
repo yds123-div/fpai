@@ -1,6 +1,8 @@
 <template>
   <div class="knowledge-view">
-    <h1 class="page-title">知识库检索</h1>
+    <div class="page-header">
+      <h1 class="page-title">知识库检索</h1>
+    </div>
 
     <div class="search-section">
       <a-input
@@ -63,6 +65,7 @@
         </a-card>
       </div>
     </div>
+
   </div>
 </template>
 
@@ -103,6 +106,7 @@ const sortOptions = [
   { label: '最早优先', value: 'time_asc' }
 ]
 
+
 function handleSearch() {
   if (!searchKeyword.value?.trim()) return
   searched.value = true
@@ -134,12 +138,20 @@ function handleReset() {
   background: linear-gradient(180deg, #f0f8ff 0%, #ffffff 30%);
 }
 
-.page-title {
-  font-size: 24px;
-  font-weight: 600;
-  color: rgba(0, 0, 0, 0.85);
-  text-align: center;
-  margin-bottom: 32px;
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  max-width: 900px;
+  margin: 0 auto 24px;
+
+  .page-title {
+    font-size: 24px;
+    font-weight: 600;
+    color: rgba(0, 0, 0, 0.85);
+    margin: 0;
+  }
+
 }
 
 .search-section {
@@ -250,4 +262,5 @@ function handleReset() {
     }
   }
 }
+
 </style>

@@ -15,6 +15,9 @@ from pkg.logger import get_logger
 
 from orchestrator.intent_slot import detect_intent_and_slots, IntentSlotResult
 
+# 五 Agent 框架（意图分类 → 4 个业务 agent）
+from agents.five_agent_framework import FiveAgentRouter, AgentRunContext
+
 logger = get_logger(__name__)
 
 try:
@@ -58,16 +61,34 @@ def _extract_text_from_response(msg: Any) -> str:
     return str(getattr(msg, "content", "") or "").strip()
 
 
+def _strip_think_blocks(text: str) -> str:
+    """
+    移除模型可能输出的 <think>...</think> 等思考过程，避免前端展示。
+    注意：仅做展示层清洗，不改变业务事实。
+    """
+    import re
+
+    s = (text or "")
+    # 移除 <think>...</think>（含跨行）
+    s = re.sub(r"<think>[\s\S]*?</think>", "", s, flags=re.IGNORECASE)
+    # 移除多余空行
+    s = re.sub(r"\n{3,}", "\n\n", s).strip()
+    return s
+
+
 async def _run_agent_turn(
     message: str,
     intent_slot: IntentSlotResult,
     permission_context: dict[str, Any] | None,
+    model_name: str | None = None,
+    base_url: str | None = None,
+    api_key: str | None = None,
 ) -> str:
     """调用 ReAct 路由智能体执行一轮，返回回复文本。"""
     if not _AGENTSCOPE_AVAILABLE or Msg is None:
         return ""
     from agents.routing.implicit import get_implicit_router
-    router = get_implicit_router()
+    router = get_implicit_router(model_name=model_name, base_url=base_url, api_key=api_key)
     if router is None:
         return ""
     context_fragment = intent_slot.to_context_prompt_fragment()
@@ -147,9 +168,15 @@ async def run_chat_turn_async(
     permission_context: dict[str, Any] | None = None,
     answer_id: str | None = None,
     trace_id: str | None = None,
+    model_name: str | None = None,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    knowledge_base_id: str | None = None,
     use_intent_slot: bool = True,
     use_compliance: bool = True,
     use_audit: bool = True,
+    progress_callback: Any | None = None,
+    stream_callback: Any | None = None,
 ) -> ChatTurnResult:
     """
     执行一轮对话编排：意图与槽位抽取 → 注入 AgentScope → ReAct+Toolkit 执行 → 合规审查 → 审计落库。
@@ -180,9 +207,19 @@ async def run_chat_turn_async(
         result.compliance = {"action": "pass", "reason": "空输入"}
         return result
 
-    # 1) 意图与槽位
+    async def _progress(stage: str):
+        try:
+            if callable(progress_callback):
+                out = progress_callback(stage)
+                if asyncio.iscoroutine(out):
+                    await out
+        except Exception:
+            return
+
+    # 1) 意图与槽位（保留：后续业务 agent 可用）
     intent_slot = IntentSlotResult(intent="other", slots={})
     if use_intent_slot:
+        await _progress("intent_slot_detecting")
         context = {}
         if product_ids:
             context["productIds"] = product_ids
@@ -193,10 +230,17 @@ async def run_chat_turn_async(
     result.slots = dict(intent_slot.slots)
     result.trace["intent"] = intent_slot.intent
 
+    # 1.5) 五 Agent 分类与路由（框架版）
+    await _progress("intent_classifying")
+    five_router = FiveAgentRouter()
+    category = five_router.classifier.classify(message)
+    result.trace["intentCategory"] = category
+
     # 2) 输入合规
     compliance_input = None
     if use_compliance:
         try:
+            await _progress("compliance_input_checking")
             from compliance import check_input
             compliance_input = check_input(message, user_id=user_id)
             if not getattr(compliance_input, "is_allowed", lambda: True)():
@@ -212,15 +256,47 @@ async def run_chat_turn_async(
         except Exception as e:
             logger.warning("合规输入审查异常: %s", e)
 
-    # 3) AgentScope 执行
-    reply_text = await _run_agent_turn(message, intent_slot, permission_context)
+    # 3) 五 Agent 执行：按分类路由到对应业务 agent
+    agent = five_router.route(category)
+    try:
+        await _progress("agent_running")
+        reply_text = await agent.run(
+            message,
+            AgentRunContext(
+                session_id=session_id,
+                user_id=user_id,
+                permission_context=permission_context,
+                product_ids=product_ids,
+                customer_profile=customer_profile,
+                model_name=model_name,
+                base_url=base_url,
+                api_key=api_key,
+                knowledge_base_id=knowledge_base_id,
+                progress_callback=progress_callback,
+                stream_callback=stream_callback,
+            ),
+        )
+    except Exception as e:
+        logger.warning("五 Agent 执行异常，回退到原 Router: %s", e, exc_info=True)
+        await _progress("agent_fallback_running")
+        reply_text = await _run_agent_turn(
+            message,
+            intent_slot,
+            permission_context,
+            model_name=model_name,
+            base_url=base_url,
+            api_key=api_key,
+        )
     if not reply_text:
         reply_text = "当前无法生成回复，请稍后重试或换一种方式提问。"
+    else:
+        reply_text = _strip_think_blocks(reply_text)
 
     # 4) 输出合规
     compliance_output = None
     if use_compliance:
         try:
+            await _progress("compliance_output_checking")
             from compliance import check_output
             compliance_output = check_output(reply_text, citations=result.citations)
             result.compliance = compliance_output.to_dict() if hasattr(compliance_output, "to_dict") else {}

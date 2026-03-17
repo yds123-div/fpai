@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 from dataclasses import asdict, is_dataclass
 from typing import Any, AsyncGenerator
 
@@ -26,6 +27,7 @@ from orchestrator.session import (
     get_session_context_for_orchestration,
     update_session_context,
     append_message,
+    get_recent_messages,
 )
 
 router = APIRouter(prefix="", tags=["chat"])
@@ -38,6 +40,13 @@ class ChatBody(BaseModel):
     productIds: list[str] | None = Field(default=None)
     customerProfile: dict[str, Any] | str | None = Field(default=None)
     stream: bool | None = Field(default=True)
+    model_id: int | None = Field(default=None, description="模型配置 ID（来自模型管理）")
+    model: str | None = Field(default=None, description="模型名称（覆盖 LLM_MODEL）")
+    knowledge_base_id: str | None = Field(default=None, description="智能对话选中的知识库 UUID（用于其它类问题检索）")
+    direct_stream: bool | None = Field(
+        default=False,
+        description="是否启用直连 OpenAI 兼容接口的真正流式（默认关闭；开启后将绕过 5-Agent 编排）",
+    )
 
 
 def _jsonable(obj: Any) -> Any:
@@ -80,6 +89,99 @@ def _chunk_text(text: str, chunk_size: int = 300) -> list[str]:
         out.append(text[i : i + chunk_size])
         i += chunk_size
     return out
+
+
+async def _stream_openai_chat(
+    base_url: str,
+    api_key: str | None,
+    model_name: str,
+    messages: list[dict[str, str]],
+    *,
+    max_tokens: int = 5000,
+    temperature: float = 0.3,
+) -> AsyncGenerator[str, None]:
+    """
+    通过 OpenAI 兼容接口做真正流式对话（/chat/completions, stream=true），逐个 yield 文本片段。
+    """
+    try:
+        import httpx
+        import json as _json
+    except ImportError:
+        return
+
+    bu = (base_url or "").rstrip("/")
+    if not bu.endswith("/v1"):
+        bu = bu + "/v1"
+    url = bu + "/chat/completions"
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    payload = {
+        "model": model_name,
+        "messages": messages,
+        "stream": True,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+
+    async with httpx.AsyncClient(timeout=None, trust_env=False) as client:
+        try:
+            async with client.stream("POST", url, headers=headers, json=payload) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line:
+                        continue
+                    line = line.strip()
+                    if not line.startswith("data:"):
+                        continue
+                    data_str = line[5:].strip()
+                    if not data_str or data_str == "[DONE]":
+                        break
+                    try:
+                        obj = _json.loads(data_str)
+                    except Exception:
+                        continue
+                    choices = obj.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta") or {}
+                    content = delta.get("content")
+                    if content:
+                        yield str(content)
+        except Exception as e:
+            logger.warning("stream_openai_chat failed: %s", e)
+            return
+
+
+def _build_openai_messages_from_history(
+    session_id: str,
+    current_user_text: str,
+    *,
+    limit: int = 12,
+) -> list[dict[str, str]]:
+    """
+    从 MySQL messages（content_summary）构造 OpenAI 兼容 messages。
+    仅用于“真正流式”直连模式；编排器模式仍由 AgentScope 自己处理上下文/工具调用。
+    """
+    history = get_recent_messages(session_id, limit=limit) or []
+    # get_recent_messages 是倒序（最新在前），这里反过来拼成对话顺序
+    history = list(reversed(history))
+    msgs: list[dict[str, str]] = [
+        {
+            "role": "system",
+            "content": "你是金融产品解析智能体助手。请用简洁、结构化的方式回答用户问题。",
+        }
+    ]
+    for h in history:
+        role = (h.get("role") or "").strip().lower()
+        if role not in ("user", "assistant"):
+            continue
+        content = (h.get("content_summary") or "").strip()
+        if not content:
+            continue
+        msgs.append({"role": role, "content": content})
+    msgs.append({"role": "user", "content": (current_user_text or "").strip()})
+    return msgs
 
 
 @router.post("/chat")
@@ -128,6 +230,21 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
     append_message(session_id, "user", msg[:2000])
 
     async def _run_once() -> dict[str, Any]:
+        # 若传入 model_id，则从 MySQL 读取模型配置（base_url/api_key/model_name），用于本轮覆盖
+        base_url_override: str | None = None
+        api_key_override: str | None = None
+        model_name_override: str | None = (body.model or "").strip() or None
+        if body.model_id:
+            try:
+                from models.store import get_model_by_id
+
+                cfg = get_model_by_id(int(body.model_id))
+                if cfg and int(cfg.get("enabled") or 0) == 1:
+                    base_url_override = (cfg.get("base_url") or "").strip() or None
+                    api_key_override = (cfg.get("api_key") or "").strip() or None
+                    model_name_override = (cfg.get("model_name") or "").strip() or model_name_override
+            except Exception:
+                pass
         result = await run_chat_turn_async(
             msg,
             session_id=session_id,
@@ -136,6 +253,10 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
             customer_profile=customer_profile,
             permission_context=permission_context,
             trace_id=trace_id,
+            model_name=model_name_override,
+            base_url=base_url_override,
+            api_key=api_key_override,
+            knowledge_base_id=(body.knowledge_base_id or "").strip() or None,
         )
         data = {
             "sessionId": session_id,
@@ -167,27 +288,174 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
     # 8) 流式 SSE（当前实现为“结果完成后分块推送”，后续可替换为真正流式生成）
     async def event_gen() -> AsyncGenerator[bytes, None]:
         try:
-            data = await _run_once()
-            answer_blocks = data.get("answerBlocks") or []
-            if not answer_blocks:
-                answer_blocks = [""]
-            for block in answer_blocks:
-                for chunk in _chunk_text(str(block or "")):
-                    yield _sse_event("message", {"text": chunk}).encode("utf-8")
+            # 若传入 model_id 且模型配置含 base_url，则走 OpenAI 兼容“真正流式”直连模式
+            base_url_override: str | None = None
+            api_key_override: str | None = None
+            model_name_override: str | None = (body.model or "").strip() or None
+            if body.model_id:
+                try:
+                    from models.store import get_model_by_id
+
+                    cfg = get_model_by_id(int(body.model_id))
+                    if cfg and int(cfg.get("enabled") or 0) == 1:
+                        base_url_override = (cfg.get("base_url") or "").strip() or None
+                        api_key_override = (cfg.get("api_key") or "").strip() or None
+                        model_name_override = (cfg.get("model_name") or "").strip() or model_name_override
+                except Exception:
+                    pass
+
+            if (body.direct_stream is True) and base_url_override and model_name_override:
+                answer_id = uuid.uuid4().hex
+                streaming_text = ""
+                openai_messages = _build_openai_messages_from_history(session_id, msg, limit=12)
+                async for t in _stream_openai_chat(
+                    base_url=base_url_override,
+                    api_key=api_key_override,
+                    model_name=model_name_override,
+                    messages=openai_messages,
+                ):
+                    streaming_text += t
+                    yield _sse_event("message", {"text": t}).encode("utf-8")
                     await asyncio.sleep(0)
-            for c in (data.get("citations") or []):
-                yield _sse_event("citation", c).encode("utf-8")
-                await asyncio.sleep(0)
-            yield _sse_event(
-                "done",
-                {
-                    "sessionId": data.get("sessionId"),
-                    "answerId": data.get("answerId"),
-                    "trace": data.get("trace") or {},
-                    "suggestedQuestions": data.get("suggestedQuestions") or [],
-                    "compliance": data.get("compliance") or {},
-                },
-            ).encode("utf-8")
+
+                preview = (streaming_text or "")[:2000]
+                append_message(session_id, "assistant", preview, answer_id=answer_id, citation_count=0)
+                yield _sse_event(
+                    "done",
+                    {
+                        "sessionId": session_id,
+                        "answerId": answer_id,
+                        "trace": {"mode": "direct_stream"},
+                        "suggestedQuestions": [],
+                        "compliance": {"action": "pass"},
+                    },
+                ).encode("utf-8")
+            else:
+                # 编排器（带进度事件 + 可选 token 级流式输出）
+                q: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
+
+                async def _emit(ev: str, payload: Any):
+                    await q.put((ev, payload))
+
+                async def _progress(stage: str):
+                    await _emit("status", {"stage": stage})
+
+                async def _stream_token(t: str):
+                    # 仅推送增量 token
+                    await _emit("message", {"text": t})
+
+                async def _runner():
+                    # 若传入 model_id，则从 MySQL 读取模型配置（base_url/api_key/model_name），用于本轮覆盖
+                    base_url_ov: str | None = None
+                    api_key_ov: str | None = None
+                    model_name_ov: str | None = (body.model or "").strip() or None
+                    if body.model_id:
+                        try:
+                            from models.store import get_model_by_id
+
+                            cfg2 = get_model_by_id(int(body.model_id))
+                            if cfg2 and int(cfg2.get("enabled") or 0) == 1:
+                                base_url_ov = (cfg2.get("base_url") or "").strip() or None
+                                api_key_ov = (cfg2.get("api_key") or "").strip() or None
+                                model_name_ov = (cfg2.get("model_name") or "").strip() or model_name_ov
+                        except Exception:
+                            pass
+                    await _progress("accepted")
+                    result = await run_chat_turn_async(
+                        msg,
+                        session_id=session_id,
+                        user_id=user_id,
+                        product_ids=product_ids,
+                        customer_profile=customer_profile,
+                        permission_context=permission_context,
+                        trace_id=trace_id,
+                        model_name=model_name_ov,
+                        base_url=base_url_ov,
+                        api_key=api_key_ov,
+                        knowledge_base_id=(body.knowledge_base_id or "").strip() or None,
+                        progress_callback=_progress,
+                        stream_callback=_stream_token,
+                    )
+                    data = {
+                        "sessionId": session_id,
+                        "answerId": result.answer_id,
+                        "answerBlocks": result.answer_blocks or [],
+                        "citations": result.citations or [],
+                        "compliance": result.compliance or {},
+                        "trace": result.trace or {},
+                        "suggestedQuestions": result.suggested_questions or [],
+                    }
+                    # 若未走 token 流式（比如没有 base_url），此处补发一次性文本（分块）
+                    answer_blocks = data.get("answerBlocks") or []
+                    if answer_blocks:
+                        # stream_callback 可能已经发过 token；为了避免重复，只有当本轮未产生任何 message 时才补发
+                        pass
+                    preview2 = ""
+                    if data["answerBlocks"]:
+                        preview2 = str(data["answerBlocks"][0] or "")[:2000]
+                    append_message(session_id, "assistant", preview2, answer_id=result.answer_id, citation_count=len(data["citations"]))
+
+                    # done/citation 统一在此处发
+                    for c in (data.get("citations") or []):
+                        await _emit("citation", c)
+                    await _emit(
+                        "done",
+                        {
+                            "sessionId": data.get("sessionId"),
+                            "answerId": data.get("answerId"),
+                            "trace": data.get("trace") or {},
+                            "suggestedQuestions": data.get("suggestedQuestions") or [],
+                            "compliance": data.get("compliance") or {},
+                            "answerBlocks": data.get("answerBlocks") or [],
+                        },
+                    )
+                    await _emit("__end__", None)
+
+                runner_task = asyncio.create_task(_runner())
+
+                sent_any_message = False
+                while True:
+                    ev, payload = await q.get()
+                    if ev == "__end__":
+                        break
+                    if ev == "message":
+                        sent_any_message = True
+                        yield _sse_event("message", payload).encode("utf-8")
+                        await asyncio.sleep(0)
+                        continue
+                    if ev == "status":
+                        # 进度事件（前端可选显示；不影响现有 message/citation/done 处理）
+                        yield _sse_event("status", payload).encode("utf-8")
+                        await asyncio.sleep(0)
+                        continue
+                    if ev == "citation":
+                        yield _sse_event("citation", payload).encode("utf-8")
+                        await asyncio.sleep(0)
+                        continue
+                    if ev == "done":
+                        # 若没有任何 token 级 message（比如未配置 base_url），则把最终 answerBlocks 分块推送一次
+                        if not sent_any_message:
+                            for block in (payload.get("answerBlocks") or [""]):
+                                for chunk in _chunk_text(str(block or "")):
+                                    yield _sse_event("message", {"text": chunk}).encode("utf-8")
+                                    await asyncio.sleep(0)
+                        yield _sse_event(
+                            "done",
+                            {
+                                "sessionId": payload.get("sessionId"),
+                                "answerId": payload.get("answerId"),
+                                "trace": payload.get("trace") or {},
+                                "suggestedQuestions": payload.get("suggestedQuestions") or [],
+                                "compliance": payload.get("compliance") or {},
+                            },
+                        ).encode("utf-8")
+                        await asyncio.sleep(0)
+                        continue
+
+                try:
+                    await runner_task
+                except Exception:
+                    pass
         except asyncio.CancelledError:
             raise
         except Exception as e:

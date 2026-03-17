@@ -57,7 +57,7 @@ def hash_password(plain: str) -> str:
     logger.info(f"digest: {digest}")
     salt = _bcrypt.gensalt(rounds=BCRYPT_ROUNDS)
     logger.info(f"salt: {salt}")
-    logger.info(f"hashpw: {_bcrypt.hashpw(digest.encode("utf-8"), salt).decode("ascii")}")
+    logger.info(f"hashpw: {_bcrypt.hashpw(digest.encode('utf-8'), salt).decode('ascii')}")
     return _bcrypt.hashpw(digest.encode("utf-8"), salt).decode("ascii")
 
 
@@ -142,7 +142,8 @@ def issue_token(user_id: str) -> str:
         return ""
     now = datetime.now(timezone.utc)
     payload = {
-        "sub": user_id,
+        # PyJWT 会校验 sub 必须为字符串；这里统一转为 str，避免 users.id 为数值时导致 token 无效
+        "sub": str(user_id),
         "iat": now,
         "exp": now + timedelta(seconds=JWT_EXPIRES_SECONDS),
     }
@@ -370,6 +371,8 @@ def create_user(
     if not pwd_hash and _BCRYPT_AVAILABLE:
         return None, None
     try:
+        # 生成用户 ID；沿用 u_ 前缀，便于与其他实体区分
+        user_id = "u_" + uuid.uuid4().hex
         with get_connection() as conn:
             if not conn:
                 return None, None
@@ -379,9 +382,9 @@ def create_user(
                     logger.info("create_user: %s 已存在", conflict)
                     return None, conflict
                 cur.execute(
-                    """INSERT INTO users (account, password_hash, name, employee_no, email)
-                       VALUES (%s, %s, %s, %s, %s)""",
-                    (account, pwd_hash, name_s, employee_no_s, email_s),
+                    """INSERT INTO users (id, account, password_hash, name, employee_no, email)
+                       VALUES (%s, %s, %s, %s, %s, %s)""",
+                    (user_id, account, pwd_hash, name_s, employee_no_s, email_s),
                 )
                 conn.commit()
         with get_connection() as conn2:

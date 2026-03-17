@@ -17,7 +17,12 @@ except ImportError:
     _AGENTSCOPE_AVAILABLE = False
 
 
-def create_chat_model_from_config() -> Any:
+def create_chat_model_from_config(
+    model_name: str | None = None,
+    *,
+    base_url: str | None = None,
+    api_key: str | None = None,
+) -> Any:
     """
     从 model_gateway.config 读取 LLM 配置，按 base_url / api_key 创建 AgentScope ChatModel。
 
@@ -34,25 +39,25 @@ def create_chat_model_from_config() -> Any:
         return None
     cfg = load_gateway_config()
     llm = cfg.llm
-    base_url = (llm.base_url or "").strip()
-    api_key = (llm.api_key or "").strip()
-    generate_kwargs = {
-        "temperature": llm.temperature,
-        "max_tokens": llm.max_tokens,
-    }
-    if base_url:
+    final_model_name = (model_name or llm.model or "").strip() or None
+    final_base_url = (base_url if base_url is not None else llm.base_url) or ""
+    final_api_key = (api_key if api_key is not None else llm.api_key) or ""
+    final_base_url = final_base_url.strip()
+    final_api_key = final_api_key.strip()
+    generate_kwargs = {"temperature": llm.temperature, "max_tokens": llm.max_tokens}
+    if final_base_url:
         return OpenAIChatModel(
-            model_name=llm.model or "qwen3-32b",
-            api_key=api_key or None,
+            model_name=final_model_name or "qwen3-32b",
+            api_key=final_api_key or None,
             stream=False,
-            client_kwargs={"base_url": base_url},
+            client_kwargs={"base_url": final_base_url},
             generate_kwargs=generate_kwargs,
             enable_thinking=False,
         )
-    if api_key:
+    if final_api_key:
         return DashScopeChatModel(
-            model_name=llm.model or "qwen3-32b",
-            api_key=api_key,
+            model_name=final_model_name or "qwen3-32b",
+            api_key=final_api_key,
             stream=False,
             generate_kwargs=generate_kwargs,
             enable_thinking=False,

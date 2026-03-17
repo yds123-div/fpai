@@ -121,14 +121,19 @@ def build_routing_toolkit() -> Any:
     return build_toolkit_from_registry()
 
 
-def get_implicit_router():
+def get_implicit_router(
+    model_name: str | None = None,
+    *,
+    base_url: str | None = None,
+    api_key: str | None = None,
+):
     """
     创建并返回隐式路由智能体（ReActAgent），其 toolkit 包含 FAQ / RAG / Insight / 产品对比 / 产品要素查询 / 产品解读 / 产品推荐 / 报告生成 / 产品列表 等工具。
     模型由 model_gateway.config 与 api_key 判定：有网关 api_key+base_url 用 OpenAIChatModel，否则用 DashScopeChatModel；均未配置时返回 None。
     """
     if not _AGENTSCOPE_AVAILABLE or ReActAgent is None:
         return None
-    model = create_chat_model_from_config()
+    model = create_chat_model_from_config(model_name=model_name, base_url=base_url, api_key=api_key)
     if model is None:
         return None
     toolkit = build_routing_toolkit()

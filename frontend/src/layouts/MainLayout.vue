@@ -62,13 +62,6 @@
               <UnorderedListOutlined />
               <span>产品列表</span>
             </a>
-            <a 
-              :class="['nav-link', { 'active': isActiveMenu.knowledgeBase }]"
-              @click="handleNav('/fpai/knowledge')"
-            >
-              <BookOutlined />
-              <span>知识库检索</span>
-            </a>
           </div>
         </div>
         <div class="conversation-history">
@@ -184,7 +177,6 @@ import {
   AuditOutlined,
   MessageOutlined,
   UnorderedListOutlined,
-  BookOutlined,
   UserOutlined,
   SettingOutlined,
   LogoutOutlined,
@@ -207,8 +199,7 @@ const isActiveMenu = computed(() => {
     report: path === '/fpai/report',
     evidence: path === '/fpai/evidence',
     feedback: path === '/fpai/feedback',
-    products: path === '/fpai/products',
-    knowledgeBase: path === '/fpai/knowledge'
+    products: path === '/fpai/products'
   }
 })
 
