@@ -89,6 +89,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '系统参数管理' }
       },
       {
+        path: 'system/roles',
+        name: 'RoleManagement',
+        component: () => import('@/views/admin/system/roles/index.vue'),
+        meta: { title: '角色管理' }
+      },
+      {
+        path: 'system/menus',
+        name: 'MenuManagement',
+        component: () => import('@/views/admin/system/menus/index.vue'),
+        meta: { title: '菜单管理' }
+      },
+      {
         path: 'theme-settings',
         name: 'ThemeSettings',
         component: () => import('@/views/admin/theme-settings/index.vue'),
@@ -105,6 +117,18 @@ const routes: RouteRecordRaw[] = [
         name: 'KnowledgeManagement',
         component: () => import('@/views/admin/knowledge/index.vue'),
         meta: { title: '知识库' }
+      },
+      {
+        path: 'agent',
+        name: 'AgentManagement',
+        component: () => import('@/views/admin/agent/index.vue'),
+        meta: { title: 'Agent管理' }
+      },
+      {
+        path: 'skill',
+        name: 'SkillManagement',
+        component: () => import('@/views/admin/skill/index.vue'),
+        meta: { title: 'Skill管理' }
       }
     ]
   }
@@ -123,6 +147,14 @@ router.beforeEach((to, _from, next) => {
     next({ path: '/login', query: { redirect: to.fullPath } })
   } else if (to.path === '/login' && userStore.token) {
     next({ path: '/' })
+  } else if (to.path.startsWith('/admin')) {
+    const roles = (userStore.userInfo as any)?.roles
+    const isAdmin = Array.isArray(roles) && roles.map((x: any) => String(x).toLowerCase()).includes('admin')
+    if (!isAdmin) {
+      next({ path: '/' })
+      return
+    }
+    next()
   } else {
     next()
   }

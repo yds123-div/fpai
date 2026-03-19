@@ -89,7 +89,7 @@
                   <UserOutlined />
                   <span style="margin-left: 10px;">个人信息</span>
                 </a-menu-item>
-                <a-menu-item key="settings">
+                <a-menu-item v-if="isAdmin" key="settings">
                   <SettingOutlined />
                   <span style="margin-left: 10px;">后台管理</span>
                 </a-menu-item>
@@ -188,6 +188,11 @@ import { encryptPassword } from '@/utils/crypto'
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
+const isAdmin = computed(() => {
+  const roles = (userStore.userInfo as any)?.roles
+  if (!Array.isArray(roles)) return false
+  return roles.map((x: any) => String(x).toLowerCase()).includes('admin')
+})
 
 // 判断当前激活的菜单项
 const isActiveMenu = computed(() => {

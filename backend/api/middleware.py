@@ -13,6 +13,7 @@ from pkg.logger import bind_trace_id, clear_trace_id
 from pkg.codes import ErrorCode, envelope, message_for
 
 from auth.service import verify_token
+from rbac.store import get_user_role_codes, ensure_seed_admin
 
 HEADER_REQUEST_ID = "X-Request-Id"
 
@@ -96,6 +97,12 @@ async def add_auth_middleware(request: Request, call_next) -> Response:
             content=envelope(code=ErrorCode.UNAUTHORIZED, message="Token 无效", data=None),
         )
     request.state.user_id = user_id
-    request.state.role = payload.get("role")  # 可选，后续从用户表或 Token 扩展
+    # 角色：优先从 RBAC 表读取（admin 账号自动绑定 admin）
+    try:
+        ensure_seed_admin()
+        roles = get_user_role_codes(str(user_id))
+        request.state.role = roles[0] if roles else None
+    except Exception:
+        request.state.role = payload.get("role")  # 兼容旧 token
     request.state.product_pool_ids = payload.get("product_pool_ids") if isinstance(payload.get("product_pool_ids"), list) else []
     return await call_next(request)

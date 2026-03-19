@@ -183,6 +183,54 @@ async def llm_chat_stream(
     async with httpx.AsyncClient(timeout=None, trust_env=False) as client:
         async with client.stream("POST", url, headers=headers, json=payload) as resp:
             resp.raise_for_status()
+            # 过滤 <think>...</think>：流式 token 可能把标签拆开，需做状态机处理
+            in_think = False
+            carry = ""
+
+            def _filter_think(delta: str) -> str:
+                nonlocal in_think, carry
+                if not delta:
+                    return ""
+                s = carry + delta
+                carry = ""
+                out_parts: list[str] = []
+                i = 0
+                while i < len(s):
+                    if not in_think:
+                        j = s.find("<think>", i)
+                        if j == -1:
+                            out_parts.append(s[i:])
+                            break
+                        out_parts.append(s[i:j])
+                        in_think = True
+                        i = j + len("<think>")
+                    else:
+                        k = s.find("</think>", i)
+                        if k == -1:
+                            # 仍在 think 中，丢弃剩余
+                            break
+                        in_think = False
+                        i = k + len("</think>")
+
+                # 处理标签被拆开的情况：保留末尾可能的 "<think" 或 "</think" 前缀
+                tail = s[max(0, len(s) - 8) :]
+                if not in_think:
+                    if "<think" in tail and "<think>" not in tail:
+                        # 将未完整标签移到 carry，避免输出破碎标签
+                        p = s.rfind("<think")
+                        if p != -1 and p >= len(s) - 8:
+                            carry = s[p:]
+                            # 回退 out_parts 最后追加的那段
+                            joined = "".join(out_parts)
+                            return joined[: max(0, len(joined) - len(carry))]
+                    if "</think" in tail and "</think>" not in tail:
+                        p = s.rfind("</think")
+                        if p != -1 and p >= len(s) - 8:
+                            carry = s[p:]
+                            joined = "".join(out_parts)
+                            return joined[: max(0, len(joined) - len(carry))]
+                return "".join(out_parts)
+
             async for line in resp.aiter_lines():
                 if not line:
                     continue
@@ -202,4 +250,6 @@ async def llm_chat_stream(
                 delta = choices[0].get("delta") or {}
                 content = delta.get("content")
                 if content:
-                    yield str(content)
+                    filtered = _filter_think(str(content))
+                    if filtered:
+                        yield filtered

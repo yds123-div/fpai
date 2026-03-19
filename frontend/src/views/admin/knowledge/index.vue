@@ -205,7 +205,7 @@ onMounted(async () => {
     const res = await listModels(true)
     const items = Array.isArray(res.data?.items) ? res.data.items : []
     // 下拉展示配置名，实际传 model_id（后端按该配置创建模型调用）
-    modelOptions.value = items.map((m) => ({ label: m.name, value: m.id }))
+    modelOptions.value = items.map((m) => ({ label: m.name, value: String(m.id) }))
     // 默认选中第一个模型
     if (!chatModel.value && modelOptions.value.length) {
       chatModel.value = modelOptions.value[0].value
@@ -221,7 +221,7 @@ onMounted(async () => {
 
 // --------- 知识库对话（流式） ----------
 const chatLoading = ref(false)
-const chatModel = ref<number>()
+const chatModel = ref<string>()
 const chatKnowledgeBase = ref<string>()
 const chatInput = ref('')
 const chatMessages = ref<{ id: number | string; role: 'user' | 'assistant'; content: string; citations?: any[] }[]>([])
@@ -237,6 +237,15 @@ function scrollChatBottom() {
 }
 
 function clearChat() {
+  if (abortChat) {
+    try {
+      abortChat()
+    } catch (_e) {
+      // ignore
+    } finally {
+      abortChat = null
+    }
+  }
   chatMessages.value = []
   chatStreaming.value = ''
   chatCitations.value = []
@@ -254,6 +263,15 @@ function handleChatEnter(e: KeyboardEvent) {
 function sendChat() {
   const text = (chatInput.value || '').trim()
   if (!text || chatLoading.value) return
+  if (abortChat) {
+    try {
+      abortChat()
+    } catch (_e) {
+      // ignore
+    } finally {
+      abortChat = null
+    }
+  }
   chatInput.value = ''
   chatMessages.value.push({ id: Date.now(), role: 'user', content: text })
   chatLoading.value = true
@@ -263,7 +281,7 @@ function sendChat() {
 
   abortChat = postKnowledgeChatStream(
     {
-      model_id: chatModel.value || undefined,
+      model_id: chatModel.value ? Number(chatModel.value) : undefined,
       knowledge_base_id: chatKnowledgeBase.value || '',
       message: text,
       top_k: 5,

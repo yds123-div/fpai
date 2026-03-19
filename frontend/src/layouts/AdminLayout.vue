@@ -14,11 +14,6 @@
         <template v-for="menu in menuList" :key="`menu-${menu.code}`">
           <MenuItemRecursive :menu="menu" :get-icon="getIcon" />
         </template>
-        <!-- 固定菜单项：主题样式设置 -->
-        <a-menu-item key="theme-settings">
-          <Icons.SettingOutlined />
-          <span>主题样式设置</span>
-        </a-menu-item>
       </a-menu>
       <div class="sidebar-footer">
         <a-dropdown :trigger="['click']" placement="topLeft">
@@ -191,11 +186,6 @@ const getMenuCodeFromPath = (path: string): string | null => {
 // 初始化选中状态
 const updateSelectedKeys = () => {
   const path = route.path
-  // 如果是主题设置页面
-  if (path === '/admin/theme-settings') {
-    selectedKeys.value = ['theme-settings']
-    return
-  }
   // 从菜单列表中查找匹配的 code
   const menuCode = getMenuCodeFromPath(path)
   if (menuCode) {
@@ -247,12 +237,6 @@ watch(
 
 
 const handleMenuSelect = ({ key }: { key: string }) => {
-  // 如果是主题设置，使用固定路径
-  if (key === 'theme-settings') {
-    router.push('/admin/theme-settings')
-    return
-  }
-
   // 递归查找菜单路径
   const findMenuPath = (menus: MenuItem[], code: string): string | null => {
     for (const menu of menus) {

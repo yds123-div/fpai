@@ -15,6 +15,100 @@ import re
 from typing import Any, Callable
 
 
+def _extract_symbols(text: str) -> list[str]:
+    t = (text or "").strip()
+    if not t:
+        return []
+    # 兼容“对比161039和110011这两只基金”这类数字紧贴中文场景
+    symbols = re.findall(r"(?<!\d)\d{6}(?!\d)", t)
+    seen: set[str] = set()
+    out: list[str] = []
+    for s in symbols:
+        if s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
+
+
+def _pick_ref_count(question: str) -> int | None:
+    q = (question or "").strip()
+    if not q:
+        return None
+    nmap = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5}
+
+    m = re.search(r"(?:前|后|这)([一二两三四五1-5])(?:只|个)?", q)
+    if m:
+        x = m.group(1)
+        if x.isdigit():
+            return int(x)
+        return nmap.get(x)
+
+    m2 = re.search(r"([一二两三四五1-5])(?:只|个)(?:基金)?", q)
+    if m2:
+        x = m2.group(1)
+        if x.isdigit():
+            return int(x)
+        return nmap.get(x)
+    return None
+
+
+def _resolve_symbols_from_history(question: str, ctx: dict[str, Any], limit: int = 30) -> list[str]:
+    """
+    当用户未显式给出基金代码时，尝试从会话历史中回填：
+    - 优先使用“最近一条含 2+ 代码”的消息（通常是上一轮榜单/对比结果）
+    - 支持“前两只/后两只/这两只”等指代表达
+    """
+    q = (question or "").strip()
+    session_id = str((ctx or {}).get("session_id") or "").strip()
+    if not session_id:
+        return []
+
+    try:
+        from orchestrator.session import get_recent_messages
+
+        msgs = get_recent_messages(session_id, limit=limit) or []
+    except Exception:
+        msgs = []
+    if not msgs:
+        return []
+
+    # 全局去重序列（按时间正序）
+    global_seen: set[str] = set()
+    global_symbols: list[str] = []
+    for m in reversed(msgs):
+        syms = _extract_symbols(str(m.get("content_summary") or ""))
+        for s in syms:
+            if s not in global_seen:
+                global_seen.add(s)
+                global_symbols.append(s)
+
+    # 最近“一个消息块”中出现的代码（优先 assistant，且至少 2 只）
+    latest_block: list[str] = []
+    for m in msgs:  # msgs 为倒序：最新在前
+        if str(m.get("role") or "").lower() != "assistant":
+            continue
+        syms = _extract_symbols(str(m.get("content_summary") or ""))
+        if len(syms) >= 2:
+            latest_block = syms
+            break
+    if not latest_block:
+        for m in msgs:
+            syms = _extract_symbols(str(m.get("content_summary") or ""))
+            if len(syms) >= 2:
+                latest_block = syms
+                break
+
+    base = latest_block or global_symbols
+    if not base:
+        return []
+
+    cnt = _pick_ref_count(q) or 2
+    cnt = max(1, min(cnt, 5))
+    if "后" in q:
+        return base[-cnt:]
+    return base[:cnt]
+
+
 async def run(question: str, ctx: dict[str, Any]) -> str:
     """
     基于 AkShare 的数据获取入口（聚合版）：
@@ -25,20 +119,23 @@ async def run(question: str, ctx: dict[str, Any]) -> str:
     若某模块接口不可用，则在模块下返回 {"ok": false, "message": "..."}，避免整体失败。
     """
     q = (question or "").strip()
-    # 兼容 “对比161039和110011这两只基金” 这类数字紧贴中文的场景；
-    # 使用数字边界而不是 \b（\b 在部分 unicode 场景下可能失效）
-    symbols = re.findall(r"(?<!\d)\d{6}(?!\d)", q)
-    # 去重并保序
-    seen = set()
-    uniq: list[str] = []
-    for s in symbols:
-        if s not in seen:
-            seen.add(s)
-            uniq.append(s)
+    uniq = _extract_symbols(q)
+    # 未显式给代码时，尝试基于会话历史回填（支持“前两只基金”等表达）
+    if len(uniq) < 2:
+        from_history = _resolve_symbols_from_history(q, ctx)
+        if from_history:
+            merged = uniq + [x for x in from_history if x not in uniq]
+            uniq = merged
     uniq = uniq[:5]
 
     if not uniq:
-        return json.dumps({"ok": False, "message": "未从问题中识别到基金代码（6位数字）"}, ensure_ascii=False)
+        return json.dumps(
+            {
+                "ok": False,
+                "message": "未识别到可用基金代码（6位数字）。请直接提供代码，或先查询基金后再使用“前两只/后两只”等上下文指代。",
+            },
+            ensure_ascii=False,
+        )
 
     try:
         import akshare as ak  # type: ignore

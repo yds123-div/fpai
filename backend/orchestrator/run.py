@@ -7,26 +7,19 @@ T026：见 architecture、technical_design §2.5；供 POST /chat 等调用。
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from pkg.logger import get_logger
 
 from orchestrator.intent_slot import detect_intent_and_slots, IntentSlotResult
 
-# 五 Agent 框架（意图分类 → 4 个业务 agent）
+# 五 Agent 框架（Coordinator 规划 → 多任务执行/融合 → 业务 agent）
 from agents.five_agent_framework import FiveAgentRouter, AgentRunContext
 
 logger = get_logger(__name__)
-
-try:
-    from agentscope.message import Msg
-    _AGENTSCOPE_AVAILABLE = True
-except ImportError:
-    Msg = None  # type: ignore[misc, assignment]
-    _AGENTSCOPE_AVAILABLE = False
-
 
 @dataclass
 class ChatTurnResult:
@@ -39,26 +32,6 @@ class ChatTurnResult:
     suggested_questions: list[str] = field(default_factory=list)
     intent: str = ""
     slots: dict[str, Any] = field(default_factory=dict)
-
-
-def _extract_text_from_response(msg: Any) -> str:
-    """从 AgentScope 返回的 Msg 中提取文本。"""
-    if msg is None:
-        return ""
-    text = getattr(msg, "get_text_content", None)
-    if callable(text):
-        out = text()
-        if out:
-            return (out or "").strip()
-    if hasattr(msg, "content") and isinstance(msg.content, list):
-        parts = []
-        for block in msg.content:
-            if hasattr(block, "text"):
-                parts.append(block.text or "")
-            elif isinstance(block, dict) and block.get("type") == "text":
-                parts.append(block.get("text", "") or "")
-        return "\n".join(parts).strip()
-    return str(getattr(msg, "content", "") or "").strip()
 
 
 def _strip_think_blocks(text: str) -> str:
@@ -74,31 +47,6 @@ def _strip_think_blocks(text: str) -> str:
     # 移除多余空行
     s = re.sub(r"\n{3,}", "\n\n", s).strip()
     return s
-
-
-async def _run_agent_turn(
-    message: str,
-    intent_slot: IntentSlotResult,
-    permission_context: dict[str, Any] | None,
-    model_name: str | None = None,
-    base_url: str | None = None,
-    api_key: str | None = None,
-) -> str:
-    """调用 ReAct 路由智能体执行一轮，返回回复文本。"""
-    if not _AGENTSCOPE_AVAILABLE or Msg is None:
-        return ""
-    from agents.routing.implicit import get_implicit_router
-    router = get_implicit_router(model_name=model_name, base_url=base_url, api_key=api_key)
-    if router is None:
-        return ""
-    context_fragment = intent_slot.to_context_prompt_fragment()
-    user_content = f"{context_fragment}\n\n用户消息：{message}"
-    try:
-        response = await router(Msg("user", user_content, "user"))
-        return _extract_text_from_response(response)
-    except Exception as e:
-        logger.warning("AgentScope 路由执行异常: %s", e)
-        return ""
 
 
 def _ensure_compliance_and_audit(
@@ -230,11 +178,27 @@ async def run_chat_turn_async(
     result.slots = dict(intent_slot.slots)
     result.trace["intent"] = intent_slot.intent
 
-    # 1.5) 五 Agent 分类与路由（框架版）
+    # 1.5) Coordinator（方式1）：规划多子任务 → 依次执行 → 融合输出
     await _progress("intent_classifying")
     five_router = FiveAgentRouter()
-    category = five_router.classifier.classify(message)
-    result.trace["intentCategory"] = category
+    ctx_obj = AgentRunContext(
+        session_id=session_id,
+        user_id=user_id,
+        permission_context=permission_context,
+        product_ids=product_ids,
+        customer_profile=customer_profile,
+        model_name=model_name,
+        base_url=base_url,
+        api_key=api_key,
+        knowledge_base_id=knowledge_base_id,
+        progress_callback=progress_callback,
+        stream_callback=stream_callback,
+    )
+    # 多任务执行时避免“子任务输出 + 最终融合输出”重复拼接：
+    # 子任务阶段禁用 token 流式，仅在 final_composing 阶段允许流式输出。
+    ctx_no_stream = replace(ctx_obj, stream_callback=None)
+    plan = await five_router.coordinator.plan(message, ctx_obj)
+    result.trace["plan"] = {"multi": bool(plan.get("multi")), "tasks": plan.get("tasks") or []}
 
     # 2) 输入合规
     compliance_input = None
@@ -256,37 +220,102 @@ async def run_chat_turn_async(
         except Exception as e:
             logger.warning("合规输入审查异常: %s", e)
 
-    # 3) 五 Agent 执行：按分类路由到对应业务 agent
-    agent = five_router.route(category)
+    # 3) 执行 plan（单任务 = 原 5-Agent；多任务 = 多 Agent + 融合）
+    tasks = plan.get("tasks") or []
+    reply_text = ""
     try:
         await _progress("agent_running")
-        reply_text = await agent.run(
-            message,
-            AgentRunContext(
-                session_id=session_id,
-                user_id=user_id,
-                permission_context=permission_context,
-                product_ids=product_ids,
-                customer_profile=customer_profile,
-                model_name=model_name,
-                base_url=base_url,
-                api_key=api_key,
-                knowledge_base_id=knowledge_base_id,
-                progress_callback=progress_callback,
-                stream_callback=stream_callback,
-            ),
-        )
+        if not isinstance(tasks, list) or not tasks:
+            # 回退：单任务
+            category = five_router.classifier.classify(message)
+            result.trace["intentCategory"] = category
+            agent = five_router.route(category)
+            reply_text = await agent.run(message, ctx_obj)
+        elif len(tasks) == 1 and not bool(plan.get("multi")):
+            t0 = tasks[0] if isinstance(tasks[0], dict) else {}
+            tp = (t0.get("type") or "").strip()
+            q0 = (t0.get("question") or "").strip() or message
+            # type 映射到原四类（kb_search/free_answer 交给 OtherAgent 处理）
+            if tp in ("product_query", "product_interpret", "product_compare", "other"):
+                agent = five_router.route(tp)  # type: ignore[arg-type]
+                result.trace["intentCategory"] = tp
+                reply_text = await agent.run(q0, ctx_obj)
+            else:
+                result.trace["intentCategory"] = "other"
+                reply_text = await five_router.other.run(q0, ctx_obj)
+        else:
+            # 多任务：分别执行，最后融合
+            await _progress("multi_task_running")
+            parts: list[dict[str, Any]] = []
+            for i, t in enumerate(tasks[:4]):  # 限制最多 4 个子任务
+                if not isinstance(t, dict):
+                    continue
+                tp = (t.get("type") or "").strip()
+                qx = (t.get("question") or "").strip()
+                if not tp or not qx:
+                    continue
+                await _progress(f"task_{i+1}_{tp}")
+                if tp == "kb_search":
+                    # 知识库子任务：优先基于外部知识库片段直接生成可用答案；若未命中则给出简洁通用指引（不反问）
+                    try:
+                        items = await five_router.other._external_kb_search(  # type: ignore[attr-defined]
+                            qx,
+                            (ctx_obj.knowledge_base_id or "").strip(),
+                            top_k=5,
+                        )
+                    except Exception:
+                        items = []
+                    if items:
+                        try:
+                            txt = await five_router.other._answer_with_kb(qx, items, ctx_no_stream)  # type: ignore[attr-defined]
+                        except Exception:
+                            txt = "知识库检索到了相关片段，但生成答案失败。"
+                    else:
+                        # 通用兜底：避免“请问你注册什么平台”这类反问，直接给简要步骤
+                        txt = (
+                            "知识库未检索到相关依据。一般注册账号可按以下步骤：打开对应平台/APP的登录页，点击“注册/创建账号”，"
+                            "按提示填写手机号/邮箱，完成验证码校验并设置密码，必要时完成实名认证即可。"
+                        )
+                    parts.append({"type": "kb_search", "question": qx, "text": txt, "items_count": len(items)})
+                elif tp == "free_answer":
+                    txt = await five_router.other._free_answer(qx, ctx_no_stream)  # type: ignore[attr-defined]
+                    parts.append({"type": "free_answer", "question": qx, "text": txt})
+                else:
+                    agent = five_router.route(tp)  # type: ignore[arg-type]
+                    txt = await agent.run(qx, ctx_no_stream)
+                    parts.append({"type": tp, "question": qx, "text": txt})
+
+            await _progress("final_composing")
+            # 最终融合：用一次 LLM，把多份结果合并成一个自然答案（支持 token 流式）
+            from agents.five_agent_framework import _llm_call_maybe_stream  # type: ignore
+            final_inst = (plan.get("final_instruction") or "").strip()
+            composer_sys = (
+                "你是金融产品问答助手。你将获得多个子任务的结果（文本）。请把它们融合成一份最终答复。"
+                "要求："
+                "0) 必须按“子任务 question”分别作答，并把每个子任务的 question 作为小标题输出，格式示例："
+                "【子问题：...】\\n<回答>\\n\\n【子问题：...】\\n<回答>；"
+                "并且必须严格按 tasks 数组中的顺序输出（与用户提问顺序一致）。"
+                "1) 只输出一份最终答案，不要再写“我需要分开说明/以下是两个问题/请问你想注册哪个平台/抱歉我无法获取实时数据”等跑题或重复的话；"
+                "2) 直接给出可执行结论与步骤；"
+                "3) 若某部分来自知识库，请在该部分末尾用一句话标注“依据来自知识库”；"
+                "4) 若某子任务内容为空或失败，才说明缺失，禁止编造。"
+                "5) 不要使用 markdown（不要用 **、---、# 等）。"
+                "重要：不要输出任何 <think> 或推理过程，只输出最终结果文本。"
+            )
+            composer_user = f"用户原始问题：{message}\n\n融合指令：{final_inst or '请将各子任务结果合并为一个答案。'}\n\n子任务结果(JSON)：\n{json.dumps(parts, ensure_ascii=False)}"
+            reply_text = await _llm_call_maybe_stream(
+                ctx=ctx_obj,
+                messages=[{"role": "system", "content": composer_sys}, {"role": "user", "content": composer_user}],
+            )
     except Exception as e:
-        logger.warning("五 Agent 执行异常，回退到原 Router: %s", e, exc_info=True)
-        await _progress("agent_fallback_running")
-        reply_text = await _run_agent_turn(
-            message,
-            intent_slot,
-            permission_context,
-            model_name=model_name,
-            base_url=base_url,
-            api_key=api_key,
-        )
+        # 删除 FAQ 那套路由：不再回退到 AgentScope Router/Toolkit（faq_query/product_list_query 等）
+        # 统一回退到 5-Agent 的 OtherAgent（优先外部知识库检索，查不到再自由回答）
+        logger.warning("五 Agent 执行异常，回退到 OtherAgent: %s", e, exc_info=True)
+        await _progress("agent_fallback_other_running")
+        try:
+            reply_text = await five_router.other.run(message, ctx_obj)
+        except Exception:
+            reply_text = ""
     if not reply_text:
         reply_text = "当前无法生成回复，请稍后重试或换一种方式提问。"
     else:

@@ -62,10 +62,9 @@ export function postKnowledgeChatStream(
   const url = `/api/v1/knowledge/chat`
   // axios 拦截器不会作用于 fetch，这里手动写入 Authorization
   const token = storage.get<string>('token')
-  const authHeader = token && typeof token === 'string' ? { Authorization: `Bearer ${token}` } : {}
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...authHeader,
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (token && typeof token === 'string') {
+    headers.Authorization = `Bearer ${token}`
   }
 
   fetch(url, { method: 'POST', headers, body: payload, signal: controller.signal })

@@ -40,6 +40,7 @@
           <template v-if="column.key === 'action'">
             <a-space>
               <a-button type="link" size="small" @click="handleEdit(record)">编辑</a-button>
+              <a-button type="link" size="small" @click="openAssignRoles(record)">分配角色</a-button>
               <a-button type="link" size="small" @click="handleResetPassword(record)">重置密码</a-button>
               <a-button type="link" danger size="small" @click="handleDelete(record)">删除</a-button>
             </a-space>
@@ -107,6 +108,32 @@
         </a-form-item>
       </a-form>
     </a-modal>
+    <!-- 分配角色模态框 -->
+    <a-modal
+      v-model:open="assignRolesModalOpen"
+      title="分配角色"
+      @ok="saveAssignedRoles"
+      @cancel="closeAssignRoles"
+      ok-text="保存"
+      cancel-text="取消"
+      :confirm-loading="assignRolesSaving"
+      width="640px"
+    >
+      <a-alert
+        type="info"
+        show-icon
+        message="提示"
+        description="保存后将覆盖该用户当前角色。普通用户默认不分配任何角色。"
+        style="margin-bottom: 12px"
+      />
+      <a-checkbox-group v-model:value="assignedRoleCodes" style="width: 100%">
+        <a-row :gutter="[8, 8]">
+          <a-col :span="12" v-for="r in roleOptions" :key="r.value">
+            <a-checkbox :value="r.value">{{ r.label }}</a-checkbox>
+          </a-col>
+        </a-row>
+      </a-checkbox-group>
+    </a-modal>
   </div>
 </template>
 
@@ -123,6 +150,7 @@ import {
   resetUserPassword,
   type User
 } from '@/api/user'
+import { listRoles, getUserRoles, setUserRoles, type RoleItem } from '@/api/rbac'
 
 const loading = ref(false)
 const modalVisible = ref(false)
@@ -244,8 +272,58 @@ const columns = [
   { title: '姓名', dataIndex: 'name', key: 'name', width: 120 },
   { title: '工号', dataIndex: 'employee_no', key: 'employee_no', width: 120 },
   { title: '邮箱', dataIndex: 'email', key: 'email', width: 180 },
-  { title: '操作', key: 'action', width: 220, fixed: 'right' }
+  { title: '操作', key: 'action', width: 280, fixed: 'right' }
 ]
+
+// ---------- 角色分配 ----------
+const assignRolesModalOpen = ref(false)
+const assignRolesSaving = ref(false)
+const assigningUser = ref<User | null>(null)
+const assignedRoleCodes = ref<string[]>([])
+const roles = ref<RoleItem[]>([])
+const roleOptions = ref<{ label: string; value: string }[]>([])
+
+async function loadRoles() {
+  try {
+    const res = await listRoles()
+    roles.value = Array.isArray(res.data?.items) ? res.data.items : []
+    roleOptions.value = roles.value.map(r => ({ label: `${r.name}（${r.code}）`, value: r.code }))
+  } catch {
+    roles.value = []
+    roleOptions.value = []
+  }
+}
+
+async function openAssignRoles(record: User) {
+  assigningUser.value = record
+  assignRolesModalOpen.value = true
+  assignedRoleCodes.value = []
+  await loadRoles()
+  try {
+    const res = await getUserRoles(record.id)
+    assignedRoleCodes.value = Array.isArray(res.data?.items) ? res.data.items : []
+  } catch {
+    assignedRoleCodes.value = []
+  }
+}
+
+function closeAssignRoles() {
+  assignRolesModalOpen.value = false
+  assigningUser.value = null
+  assignedRoleCodes.value = []
+}
+
+async function saveAssignedRoles() {
+  if (!assigningUser.value) return
+  assignRolesSaving.value = true
+  try {
+    await setUserRoles(assigningUser.value.id, assignedRoleCodes.value)
+    message.success('保存成功')
+    assignRolesModalOpen.value = false
+  } finally {
+    assignRolesSaving.value = false
+  }
+}
 
 const fetchData = async () => {
   loading.value = true

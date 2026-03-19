@@ -15,39 +15,13 @@ export interface MenuItem {
   children?: MenuItem[]
 }
 
-/** 模拟菜单数据（参数管理、模型管理、知识库） */
-const MOCK_MENU_LIST: MenuItem[] = [
-  {
-    code: 'admin-user',
-    name: '用户管理',
-    path: '/admin/system/user',
-    icon: 'user'
-  },
-  {
-    code: 'admin-params',
-    name: '参数管理',
-    path: '/admin/system/config',
-    icon: 'setting'
-  },
-  {
-    code: 'admin-model',
-    name: '模型管理',
-    path: '/admin/model',
-    icon: 'thunderbolt'
-  },
-  {
-    code: 'admin-knowledge',
-    name: '知识库',
-    path: '/admin/knowledge',
-    icon: 'database'
-  }
-]
-
 /**
- * 获取用户菜单（当前返回模拟数据：参数管理、模型管理、知识库）
+ * 获取用户菜单（后台管理侧栏）
  */
 export async function getUserMenus(): Promise<{ code: number; data: MenuItem[] }> {
-  return { code: 200, data: MOCK_MENU_LIST }
+  const res = await request.get<{ items: MenuItem[] }>('/rbac/menus/me')
+  const items = Array.isArray(res.data?.items) ? res.data.items : []
+  return { code: 200, data: items }
 }
 
 // ---------- 当前用户信息与修改（模拟） ----------
@@ -58,6 +32,7 @@ export interface UserInfo {
   email: string
   name: string
   employee_no?: string
+  roles?: string[]
 }
 
 

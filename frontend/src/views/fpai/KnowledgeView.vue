@@ -71,7 +71,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { SearchOutlined, FileTextOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import { SearchOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 
 const searchKeyword = ref('')
 const loading = ref(false)

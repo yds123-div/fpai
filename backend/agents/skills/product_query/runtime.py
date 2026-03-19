@@ -31,6 +31,9 @@ def _pick_horizon_key(q: str) -> str:
     后续再映射到 AkShare 开放式基金排行（按列序号）字段。
     """
     t = (q or "").strip()
+    # “今天/今日/当日”优先走日涨幅榜
+    if any(k in t for k in ("今天", "今日", "当日")):
+        return "day"
     if any(k in t for k in ("近一周", "近1周", "近7天", "一周", "周")):
         return "week"
     if any(k in t for k in ("近一月", "近1月", "近30天", "一月", "1个月", "月")):
@@ -108,6 +111,7 @@ async def run(question: str, ctx: dict[str, Any]) -> str:
     # 7 近1周 8 近1月 9 近3月 10 近6月 11 近1年 12 近2年 13 近3年
     # 14 今年来 15 成立来 16 自定义 17 手续费
     horizon_col_index = {
+        "day": 6,  # 日增长率
         "week": 7,
         "month": 8,
         "m3": 9,
@@ -181,14 +185,19 @@ async def run(question: str, ctx: dict[str, Any]) -> str:
             ensure_ascii=False,
         )
 
-    # 先按“horizon 收益”粗排，取一小段候选再做“稳健性”补充与重排（避免逐只调用过慢）
-    items = [x for x in items if x.get("return_horizon_pct") is not None]
-    items.sort(key=lambda x: float(x.get("return_horizon_pct") or -10_000), reverse=True)
+    # 先按收益粗排
+    if horizon == "day":
+        items = [x for x in items if x.get("return_day_pct") is not None]
+        items.sort(key=lambda x: float(x.get("return_day_pct") or -10_000), reverse=True)
+    else:
+        items = [x for x in items if x.get("return_horizon_pct") is not None]
+        items.sort(key=lambda x: float(x.get("return_horizon_pct") or -10_000), reverse=True)
     candidates = items[:10]
 
     # 补充稳健性：雪球盈亏概率（win_rate + avg_return）
     fn_prob = getattr(ak, "fund_individual_profit_probability_xq", None)
-    if callable(fn_prob) and candidates:
+    # “今天涨幅榜”默认不再补充 stability（避免额外慢），除非用户明确提“低风险/稳健”
+    if horizon != "day" and callable(fn_prob) and candidates:
         import asyncio
 
         sem = asyncio.Semaphore(5)  # 限制并发，避免把数据源打爆
@@ -224,7 +233,7 @@ async def run(question: str, ctx: dict[str, Any]) -> str:
             it["stability"] = st
 
     def _score(it: dict[str, Any]) -> float:
-        ret = float(it.get("return_horizon_pct") or 0.0)
+        ret = float((it.get("return_day_pct") if horizon == "day" else it.get("return_horizon_pct")) or 0.0)
         win = None
         try:
             sample = (it.get("stability") or {}).get("sample")  # type: ignore[union-attr]
