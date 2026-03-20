@@ -213,6 +213,46 @@ class CoordinatorAgent:
         if not q:
             return {"multi": False, "tasks": [], "final_instruction": ""}
 
+        # 对“你好/闲聊”等纯客套输入走启发式短路：
+        # - 避免先调用一次 LLM 做 plan（你日志里会看到 tasks=[] 的那次）
+        # - 直接把任务分给 other，后续由 OtherAgent 自行生成回答
+        try:
+            import re as _re
+
+            def _is_chitchat(text: str) -> bool:
+                # 若出现基金代码，优先当作产品问题处理
+                if _re.search(r"(?<!\d)\d{6}(?!\d)", text or ""):
+                    return False
+                t = (text or "").strip()
+                triggers = (
+                    "你好",
+                    "您好",
+                    "在吗",
+                    "哈喽",
+                    "你好呀",
+                    "早上好",
+                    "晚上好",
+                    "谢谢",
+                    "感谢",
+                    "怎么称呼",
+                    "你是谁",
+                    "你叫什么",
+                    "再见",
+                    "拜拜",
+                    "闲聊",
+                    "聊天",
+                    "打个招呼",
+                    "打招呼",
+                )
+                return any(x in t for x in triggers)
+
+            cat_for_short_circuit = _heuristic_classify(q)
+            if cat_for_short_circuit == "other" and _is_chitchat(q):
+                return {"multi": False, "tasks": [{"type": "other", "question": q}], "final_instruction": ""}
+        except Exception:
+            # 短路失败不影响主流程
+            pass
+
         # 没有知识库可用时，没必要拆 kb_search
         kb_id = (ctx.knowledge_base_id or "").strip()
 
@@ -287,8 +327,8 @@ class CoordinatorAgent:
             logger.warning("Coordinator plan failed, fallback to heuristic: %s", e)
             cat = _heuristic_classify(q)
             return {"multi": False, "tasks": [{"type": cat, "question": q}], "final_instruction": ""}
-class FiveAgentRouter:
-    """五 Agent 路由器：先分类，再路由到四个业务 Agent。"""
+class FundAgentRouter:
+    """基金业务 Agent 路由器：先分类，再路由到四个业务 Agent。"""
 
     def __init__(self) -> None:
         self.coordinator = CoordinatorAgent()

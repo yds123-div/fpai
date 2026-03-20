@@ -32,7 +32,7 @@ class ModelNotConfiguredError(ModelGatewayError):
     pass
 
 
-def _create_agentscope_model(llm: LLMConfig):
+def _create_agentscope_model(llm: LLMConfig, *, enable_thinking: bool = False):
     """根据 config 创建 AgentScope ChatModel（与 routing/faq 逻辑一致）。"""
     if not _AGENTSCOPE_AVAILABLE or (OpenAIChatModel is None and DashScopeChatModel is None):
         return None
@@ -46,7 +46,7 @@ def _create_agentscope_model(llm: LLMConfig):
             stream=False,
             client_kwargs={"base_url": base_url},
             generate_kwargs=gen,
-            enable_thinking=False,
+            enable_thinking=bool(enable_thinking),
         )
     if api_key:
         return DashScopeChatModel(
@@ -54,7 +54,7 @@ def _create_agentscope_model(llm: LLMConfig):
             api_key=api_key,
             stream=False,
             generate_kwargs=gen,
-            enable_thinking=False,
+            enable_thinking=bool(enable_thinking),
         )
     return None
 
@@ -66,10 +66,21 @@ def _content_from_chat_response(response: Any) -> str:
     content = getattr(response, "content", None) or []
     parts = []
     for block in content:
+        # 普通文本块
         if hasattr(block, "text"):
             parts.append(block.text or "")
+        # 部分 SDK 用 dict 描述 block
         elif isinstance(block, dict) and block.get("type") == "text":
             parts.append(block.get("text", "") or "")
+        # thinking 块：用于展示推理过程（以 <think> 包裹）
+        elif hasattr(block, "thinking"):
+            th = block.thinking or ""
+            if th:
+                parts.append(f"<think>{th}</think>")
+        elif isinstance(block, dict) and block.get("type") == "thinking":
+            th = block.get("thinking") or ""
+            if th:
+                parts.append(f"<think>{th}</think>")
     return "\n".join(parts).strip()
 
 
@@ -87,9 +98,34 @@ def _run_agentscope_in_new_loop(model: Any, messages: list[dict]) -> str:
     """在独立事件循环中运行 _chat_via_agentscope（用于线程内调用，避免与主循环冲突）。"""
     loop = asyncio.new_event_loop()
     try:
+        # 确保协程/回调在该 loop 上正确注册
+        prev_loop = None
+        try:
+            prev_loop = asyncio.get_event_loop()
+        except Exception:
+            prev_loop = None
+        asyncio.set_event_loop(loop)
         return loop.run_until_complete(_chat_via_agentscope(model, messages))
     finally:
-        loop.close()
+        # 某些底层库（如 httpx/anyio）会在退出阶段异步关闭连接池。
+        # 若直接 loop.close()，可能触发 "RuntimeError: Event loop is closed"。
+        try:
+            pending = asyncio.all_tasks(loop)
+            if pending:
+                for t in pending:
+                    t.cancel()
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+
+            # 关闭异步生成器，避免挂起的清理任务泄漏
+            loop.run_until_complete(loop.shutdown_asyncgens())
+        except Exception:
+            pass
+        finally:
+            try:
+                asyncio.set_event_loop(None)
+            except Exception:
+                pass
+            loop.close()
 
 
 def llm_chat(
@@ -98,6 +134,8 @@ def llm_chat(
     base_url: str | None = None,
     api_key: str | None = None,
     config: GatewayConfig | None = None,
+    *,
+    enable_thinking: bool = False,
 ) -> str:
     """
     调用 LLM 对话接口：优先通过 AgentScope（OpenAIChatModel/DashScopeChatModel）调用；
@@ -115,7 +153,7 @@ def llm_chat(
     key = "llm"
     if is_open(key):
         raise ModelGatewayError("LLM 熔断中，请稍后重试")
-    agentscope_model = _create_agentscope_model(llm)
+    agentscope_model = _create_agentscope_model(llm, enable_thinking=enable_thinking)
     if agentscope_model is not None:
         try:
             try:
@@ -150,6 +188,7 @@ async def llm_chat_stream(
     *,
     max_tokens: int = 5000,
     temperature: float = 0.3,
+    show_thinking: bool = False,
 ) -> AsyncGenerator[str, None]:
     """
     OpenAI 兼容接口的真正流式（/chat/completions, stream=true）。
@@ -157,7 +196,11 @@ async def llm_chat_stream(
     - 该函数不依赖 AgentScope，直接用 httpx 消费 SSE 流。
     - 主要用于“5-Agent 仍在编排，但最终回答 token 级流式输出”的体验优化。
     """
+    cfg = load_gateway_config()
     bu = (base_url or "").strip().rstrip("/")
+    # base_url 未传入时，回退到网关默认配置（便于在 UI 仅传 model_id 时仍可流式）
+    if not bu:
+        bu = (cfg.llm.base_url or "").strip().rstrip("/")
     if not bu:
         return
     # 兼容：base_url 若未以 /v1 结尾则补齐
@@ -165,10 +208,11 @@ async def llm_chat_stream(
         bu = bu + "/v1"
     url = bu + "/chat/completions"
     headers: dict[str, str] = {"Content-Type": "application/json"}
-    if (api_key or "").strip():
-        headers["Authorization"] = f"Bearer {api_key.strip()}"
+    _api_key = (api_key or "").strip() or (cfg.llm.api_key or "").strip()
+    if _api_key:
+        headers["Authorization"] = f"Bearer {_api_key}"
     payload = {
-        "model": (model or "").strip() or "qwen3-32b",
+        "model": (model or "").strip() or (cfg.llm.model or "").strip() or "qwen3-32b",
         "messages": messages,
         "stream": True,
         "max_tokens": max_tokens,
@@ -250,6 +294,10 @@ async def llm_chat_stream(
                 delta = choices[0].get("delta") or {}
                 content = delta.get("content")
                 if content:
-                    filtered = _filter_think(str(content))
-                    if filtered:
-                        yield filtered
+                    if show_thinking:
+                        # 直接返回，前端自行解析 <think>...</think> 并折叠展示
+                        yield str(content)
+                    else:
+                        filtered = _filter_think(str(content))
+                        if filtered:
+                            yield filtered

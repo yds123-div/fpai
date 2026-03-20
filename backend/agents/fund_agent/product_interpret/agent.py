@@ -8,6 +8,7 @@ from typing import Any
 from agents.fund_agent.runtime import (
     AgentRunContext,
     BaseBusinessAgent,
+    _emit_progress,
     _llm_call_maybe_stream,
     resolve_agent_skill_keys,
     run_configured_skills,
@@ -112,6 +113,13 @@ class ProductInterpretAgent(BaseBusinessAgent):
             ctx=ctx,
             default_system_prompt=DEFAULT_SYSTEM_PROMPT,
         )
+
+        # 展示思考过程：允许模型用 <think>...</think> 包裹推理，并在前端折叠展示
+        if bool(getattr(ctx, "show_thinking", False)):
+            system_prompt = system_prompt.replace(
+                "重要：不要输出任何 <think> 或推理过程，只输出最终结果文本。",
+                "重要：请把推理过程用 <think>...</think> 包裹；最终答案不要包含 <think>。",
+            )
 
         # skills：优先配置；默认复用 product_compare
         m = re.search(r"\b\d{6}\b", (question or ""))

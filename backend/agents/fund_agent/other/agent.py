@@ -28,6 +28,10 @@ class OtherAgent(BaseBusinessAgent):
         # other：允许通过 agent_profiles 覆盖通用回答提示词 + 模型
         system_prompt, ctx = resolve_agent_overrides(agent_key="other", ctx=ctx, default_system_prompt=DEFAULT_SYSTEM_PROMPT)
 
+        # 闲聊/客套类问题：即使前端传了 knowledge_base_id，也不触发知识库检索
+        if _is_chitchat(q):
+            return await self._free_answer(q, ctx, system_prompt=system_prompt)
+
         kb_id = (ctx.knowledge_base_id or "").strip()
         # 若用户未选择知识库，则直接自由回答
         if not kb_id:
@@ -132,4 +136,46 @@ class OtherAgent(BaseBusinessAgent):
         except Exception as e:
             logger.warning("OtherAgent LLM 调用失败: %s", e)
             return ""
+
+
+def _is_chitchat(text: str) -> bool:
+    """
+    轻量闲聊识别：命中问候/客套词就认为是闲聊。
+    仅当输入不包含 6 位基金代码时才短路，避免误伤产品问题。
+    """
+    try:
+        import re as _re
+
+        t = (text or "").strip()
+        if not t:
+            return False
+
+        # 若包含基金代码，优先按产品问题处理
+        if _re.search(r"(?<!\d)\d{6}(?!\d)", t):
+            return False
+
+        triggers = (
+            "你好",
+            "您好",
+            "在吗",
+            "哈喽",
+            "你好呀",
+            "早上好",
+            "晚上好",
+            "谢谢",
+            "感谢",
+            "怎么称呼",
+            "你是谁",
+            "你叫什么",
+            "再见",
+            "拜拜",
+            "闲聊",
+            "聊天",
+            "打个招呼",
+            "打招呼",
+            "问候",
+        )
+        return any(x in t for x in triggers)
+    except Exception:
+        return False
 

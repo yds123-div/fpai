@@ -112,6 +112,12 @@ class ProductCompareAgent(BaseBusinessAgent):
             default_system_prompt=DEFAULT_SYSTEM_PROMPT,
         )
 
+        if bool(getattr(ctx, "show_thinking", False)):
+            system_prompt = system_prompt.replace(
+                "重要：不要输出任何 <think> 或推理过程，只输出最终结果文本。",
+                "重要：请把推理过程用 <think>...</think> 包裹；最终答案不要包含 <think>。",
+            )
+
         # 1) skills：优先配置；默认 product_compare
         supplier_data: Any = None
         supplier_brief = ""

@@ -24,7 +24,23 @@
       <template v-for="msg in messages" :key="msg.id">
         <div :class="['message-row', msg.role]">
           <div class="message-bubble">
-            <div class="message-content">{{ msg.content }}</div>
+            <div class="message-content">
+              <template v-if="msg.role === 'assistant' && parseThink(msg.content).think">
+                <div class="think-block">
+                  <div class="think-header">
+                    <a-typography-text type="secondary" style="font-size: 14px">思考过程</a-typography-text>
+                    <a-button type="link" size="small" @click="toggleThink(msg.id)">
+                      {{ thinkExpanded[msg.id] ? '收起' : '展开' }}
+                    </a-button>
+                  </div>
+                  <div v-show="thinkExpanded[msg.id]" style="white-space: pre-wrap">{{ parseThink(msg.content).think }}</div>
+                  <div style="white-space: pre-wrap">{{ parseThink(msg.content).answer }}</div>
+                </div>
+              </template>
+              <template v-else>
+                {{ msg.content }}
+              </template>
+            </div>
             <div v-if="msg.citations?.length" class="citations">
               <a-typography-text type="secondary" style="font-size: 12px">引用：</a-typography-text>
               <div v-for="(c, i) in msg.citations" :key="i" class="citation-item">
@@ -50,7 +66,23 @@
       </template>
       <div v-if="streamingContent" class="message-row assistant">
         <div class="message-bubble">
-          <div class="message-content">{{ streamingContent }}</div>
+          <div class="message-content">
+            <template v-if="parseThink(streamingContent).think">
+              <div class="think-block">
+                <div class="think-header">
+                  <a-typography-text type="secondary" style="font-size: 14px">思考过程</a-typography-text>
+                  <a-button type="link" size="small" @click="streamingThinkExpanded = !streamingThinkExpanded">
+                    {{ streamingThinkExpanded ? '收起' : '展开' }}
+                  </a-button>
+                </div>
+                <div v-show="streamingThinkExpanded" style="white-space: pre-wrap">{{ parseThink(streamingContent).think }}</div>
+                <div style="white-space: pre-wrap">{{ parseThink(streamingContent).answer }}</div>
+              </div>
+            </template>
+            <template v-else>
+              {{ streamingContent }}
+            </template>
+          </div>
           <a-spin size="small" style="margin-left: 8px" />
         </div>
       </div>
@@ -95,6 +127,13 @@ const selectedModel = ref()
 const modelOptions = ref([])
 const selectedKnowledgeBase = ref()
 const knowledgeBaseOptions = ref([])
+
+// 思考过程折叠：默认折叠，用户可点开
+// 注意：本文件未开启 TS 语法，因此这里保持纯 JS 写法
+const thinkExpanded = ref({})
+
+// 流式阶段：默认折叠
+const streamingThinkExpanded = ref(false)
 
 let abortStream = null
 
@@ -148,6 +187,28 @@ function useSuggestedQuestion(q) {
   send()
 }
 
+function parseThink(content) {
+  const s = (content || '').toString()
+  // 1) 标准 thinking：<think>...</think>
+  let m = s.match(/<think\s*>\s*([\s\S]*?)\s*<\/think>/i)
+
+  // 2) 当前模型常见包裹：<opt switching>...</opt switching>
+  // 注意：这里必须匹配 “opt + 空格 + switching”，避免误伤普通 <opt>。
+  if (!m) {
+    m = s.match(/<opt\s+switching\s*>\s*([\s\S]*?)\s*<\/opt\s+switching\s*>/i)
+  }
+
+  if (!m) return { think: '', answer: s }
+  const think = m[1] || ''
+  const answer = (s.replace(m[0], '') || '').trim()
+  return { think, answer }
+}
+
+function toggleThink(id) {
+  if (!id) return
+  thinkExpanded.value[id] = !thinkExpanded.value[id]
+}
+
 function handlePressEnter(e) {
   if (!e.shiftKey) {
     e.preventDefault()
@@ -179,6 +240,7 @@ function send() {
     stream: true,
     model_id: selectedModel.value || undefined,
     knowledge_base_id: selectedKnowledgeBase.value || undefined,
+    showThinking: true,
   }
 
   abortStream = postChatStream(body, {
@@ -197,8 +259,11 @@ function send() {
       const citations = [...streamCitations.value]
       streamCitations.value = []
       const suggestedQuestions = Array.isArray(data?.suggestedQuestions) ? data.suggestedQuestions : []
+
+      const aid = data?.answerId || String(Date.now())
+      thinkExpanded.value[aid] = false
       messages.value.push({
-        id: data?.answerId || Date.now(),
+        id: aid,
         role: 'assistant',
         content: fullText,
         citations,

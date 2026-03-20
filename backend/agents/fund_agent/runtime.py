@@ -33,6 +33,9 @@ class AgentRunContext:
     progress_callback: Any | None = None
     stream_callback: Any | None = None
 
+    # 是否允许并展示模型推理过程（输出 <think>...</think>）
+    show_thinking: bool = False
+
 
 class BaseBusinessAgent:
     name: str = "BaseBusinessAgent"
@@ -202,7 +205,9 @@ async def _llm_call_maybe_stream(
     - 否则：走原 llm_chat（一次性返回）
     """
     stream_cb = getattr(ctx, "stream_callback", None)
-    if callable(stream_cb) and (ctx.base_url or "").strip() and (ctx.model_name or "").strip():
+    # 只要模型名存在就尽量走真正流式；
+    # base_url 可由 llm_chat_stream 内部回退到网关默认配置。
+    if callable(stream_cb) and (ctx.model_name or "").strip():
         try:
             from model_gateway.llm import llm_chat_stream
 
@@ -212,6 +217,7 @@ async def _llm_call_maybe_stream(
                 model=ctx.model_name,
                 base_url=ctx.base_url,
                 api_key=ctx.api_key,
+                show_thinking=bool(getattr(ctx, "show_thinking", False)),
             ):
                 if not t:
                     continue
@@ -226,5 +232,14 @@ async def _llm_call_maybe_stream(
 
     from model_gateway.llm import llm_chat
 
-    return (await asyncio.to_thread(llm_chat, messages, model=ctx.model_name, base_url=ctx.base_url, api_key=ctx.api_key)).strip()
+    return (
+        await asyncio.to_thread(
+            llm_chat,
+            messages,
+            model=ctx.model_name,
+            base_url=ctx.base_url,
+            api_key=ctx.api_key,
+            enable_thinking=bool(getattr(ctx, "show_thinking", False)),
+        )
+    ).strip()
 

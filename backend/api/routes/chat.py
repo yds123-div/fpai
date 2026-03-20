@@ -43,6 +43,10 @@ class ChatBody(BaseModel):
     model_id: int | None = Field(default=None, description="模型配置 ID（来自模型管理）")
     model: str | None = Field(default=None, description="模型名称（覆盖 LLM_MODEL）")
     knowledge_base_id: str | None = Field(default=None, description="智能对话选中的知识库 UUID（用于其它类问题检索）")
+    showThinking: bool | None = Field(
+        default=False,
+        description="是否展示模型推理过程（可能输出 <think>...</think>）",
+    )
     direct_stream: bool | None = Field(
         default=False,
         description="是否启用直连 OpenAI 兼容接口的真正流式（默认关闭；开启后将绕过 5-Agent 编排）",
@@ -303,6 +307,7 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
             base_url=base_url_override,
             api_key=api_key_override,
             knowledge_base_id=(body.knowledge_base_id or "").strip() or None,
+            show_thinking=bool(body.showThinking),
         )
         data = {
             "sessionId": session_id,
@@ -419,6 +424,7 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
                         base_url=base_url_ov,
                         api_key=api_key_ov,
                         knowledge_base_id=(body.knowledge_base_id or "").strip() or None,
+                        show_thinking=bool(body.showThinking),
                         progress_callback=_progress,
                         stream_callback=_stream_token,
                     )

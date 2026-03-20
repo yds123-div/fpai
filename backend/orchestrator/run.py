@@ -14,10 +14,8 @@ from typing import Any
 
 from pkg.logger import get_logger
 
-from orchestrator.intent_slot import detect_intent_and_slots, IntentSlotResult
-
-# 五 Agent 框架（Coordinator 规划 → 多任务执行/融合 → 业务 agent）
-from agents.five_agent_framework import FiveAgentRouter, AgentRunContext
+# 基金业务 Agent 框架 fund_agent_framework（Coordinator 规划 → 多任务执行/融合 → 业务 agent）
+from agents.fund_agent_framework import FundAgentRouter, AgentRunContext
 
 logger = get_logger(__name__)
 
@@ -34,7 +32,7 @@ class ChatTurnResult:
     slots: dict[str, Any] = field(default_factory=dict)
 
 
-def _strip_think_blocks(text: str) -> str:
+def _strip_think_blocks(text: str, *, show_thinking: bool = False) -> str:
     """
     移除模型可能输出的 <think>...</think> 等思考过程，避免前端展示。
     注意：仅做展示层清洗，不改变业务事实。
@@ -42,9 +40,10 @@ def _strip_think_blocks(text: str) -> str:
     import re
 
     s = (text or "")
-    # 移除 <think>...</think>（含跨行）
-    s = re.sub(r"<think>[\s\S]*?</think>", "", s, flags=re.IGNORECASE)
-    # 移除多余空行
+    if not show_thinking:
+        # 移除 <think>...</think>（含跨行）
+        s = re.sub(r"<think>[\s\S]*?</think>", "", s, flags=re.IGNORECASE)
+    # 移除多余空行（保留 think 时也做一下清洗）
     s = re.sub(r"\n{3,}", "\n\n", s).strip()
     return s
 
@@ -53,7 +52,9 @@ def _ensure_compliance_and_audit(
     answer_id: str,
     message: str,
     reply_text: str,
-    intent_slot: IntentSlotResult,
+    *,
+    intent: str,
+    slots: dict[str, Any],
     compliance_input: Any,
     compliance_output: Any,
     session_id: str | None,
@@ -69,10 +70,10 @@ def _ensure_compliance_and_audit(
         append_event(
             answer_id,
             "intent_slot",
-            {"intent": intent_slot.intent, "slots": intent_slot.slots},
+            {"intent": intent, "slots": slots},
             session_id=session_id,
             user_id=user_id,
-            intent=intent_slot.intent,
+            intent=intent,
         )
         inp_payload = (
             compliance_input.to_dict() if compliance_input and hasattr(compliance_input, "to_dict")
@@ -125,6 +126,7 @@ async def run_chat_turn_async(
     use_audit: bool = True,
     progress_callback: Any | None = None,
     stream_callback: Any | None = None,
+    show_thinking: bool = False,
 ) -> ChatTurnResult:
     """
     执行一轮对话编排：意图与槽位抽取 → 注入 AgentScope → ReAct+Toolkit 执行 → 合规审查 → 审计落库。
@@ -164,23 +166,15 @@ async def run_chat_turn_async(
         except Exception:
             return
 
-    # 1) 意图与槽位（保留：后续业务 agent 可用）
-    intent_slot = IntentSlotResult(intent="other", slots={})
-    if use_intent_slot:
-        await _progress("intent_slot_detecting")
-        context = {}
-        if product_ids:
-            context["productIds"] = product_ids
-        if customer_profile:
-            context["customerProfile"] = customer_profile
-        intent_slot = detect_intent_and_slots(message, context=context or None, use_llm=True)
-    result.intent = intent_slot.intent
-    result.slots = dict(intent_slot.slots)
-    result.trace["intent"] = intent_slot.intent
+    # 1) 意图与槽位：本版本不再做 intent_slot 抽取（删掉 intent_slot LLM 链路）
+    # 先占位，后面由 Coordinator.plan 的 tasks 结构反推 result.intent
+    result.intent = "other"
+    result.slots = {}
+    result.trace["intent"] = result.intent
 
     # 1.5) Coordinator（方式1）：规划多子任务 → 依次执行 → 融合输出
     await _progress("intent_classifying")
-    five_router = FiveAgentRouter()
+    fund_router = FundAgentRouter()
     ctx_obj = AgentRunContext(
         session_id=session_id,
         user_id=user_id,
@@ -193,12 +187,29 @@ async def run_chat_turn_async(
         knowledge_base_id=knowledge_base_id,
         progress_callback=progress_callback,
         stream_callback=stream_callback,
+        show_thinking=bool(show_thinking),
     )
     # 多任务执行时避免“子任务输出 + 最终融合输出”重复拼接：
     # 子任务阶段禁用 token 流式，仅在 final_composing 阶段允许流式输出。
     ctx_no_stream = replace(ctx_obj, stream_callback=None)
-    plan = await five_router.coordinator.plan(message, ctx_obj)
+    plan = await fund_router.coordinator.plan(message, ctx_obj)
     result.trace["plan"] = {"multi": bool(plan.get("multi")), "tasks": plan.get("tasks") or []}
+
+    # 从 plan 反推 intent（替代已移除的 intent_slot 抽取）
+    try:
+        p_tasks = plan.get("tasks") or []
+        if isinstance(p_tasks, list) and p_tasks:
+            t0 = p_tasks[0] if isinstance(p_tasks[0], dict) else {}
+            tp = (t0.get("type") or "").strip()
+            if tp in ("product_query", "product_interpret", "product_compare"):
+                result.intent = tp
+            else:
+                result.intent = "other"
+        else:
+            result.intent = "other"
+    except Exception:
+        result.intent = "other"
+    result.slots = dict(result.slots or {})
 
     # 2) 输入合规
     compliance_input = None
@@ -212,9 +223,15 @@ async def run_chat_turn_async(
                 result.compliance = compliance_input.to_dict() if hasattr(compliance_input, "to_dict") else {"action": "reject"}
                 if use_audit:
                     _ensure_compliance_and_audit(
-                        result.answer_id, message, "", intent_slot,
-                        compliance_input, compliance_input,
-                        session_id, user_id,
+                        result.answer_id,
+                        message,
+                        "",
+                        intent=result.intent,
+                        slots=result.slots,
+                        compliance_input=compliance_input,
+                        compliance_output=compliance_input,
+                        session_id=session_id,
+                        user_id=user_id,
                     )
                 return result
         except Exception as e:
@@ -227,22 +244,33 @@ async def run_chat_turn_async(
         await _progress("agent_running")
         if not isinstance(tasks, list) or not tasks:
             # 回退：单任务
-            category = five_router.classifier.classify(message)
+            category = fund_router.classifier.classify(message)
             result.trace["intentCategory"] = category
-            agent = five_router.route(category)
+            agent = fund_router.route(category)
             reply_text = await agent.run(message, ctx_obj)
-        elif len(tasks) == 1 and not bool(plan.get("multi")):
+        elif len(tasks) == 1:
+            # 单任务：不做 final_composing，直接把业务 agent 的 LLM 输出流式回传
             t0 = tasks[0] if isinstance(tasks[0], dict) else {}
             tp = (t0.get("type") or "").strip()
             q0 = (t0.get("question") or "").strip() or message
-            # type 映射到原四类（kb_search/free_answer 交给 OtherAgent 处理）
+
             if tp in ("product_query", "product_interpret", "product_compare", "other"):
-                agent = five_router.route(tp)  # type: ignore[arg-type]
+                agent = fund_router.route(tp)  # type: ignore[arg-type]
                 result.trace["intentCategory"] = tp
                 reply_text = await agent.run(q0, ctx_obj)
-            else:
+            elif tp == "kb_search":
+                # 仅触发知识库（OtherAgent 会根据 ctx.knowledge_base_id 决定是否检索）
                 result.trace["intentCategory"] = "other"
-                reply_text = await five_router.other.run(q0, ctx_obj)
+                reply_text = await fund_router.other.run(q0, ctx_obj)
+            elif tp == "free_answer":
+                # free_answer 不触发知识库检索
+                result.trace["intentCategory"] = "other"
+                ctx_free = replace(ctx_obj, knowledge_base_id=None)
+                reply_text = await fund_router.other.run(q0, ctx_free)
+            else:
+                # 兜底：按 other 处理
+                result.trace["intentCategory"] = "other"
+                reply_text = await fund_router.other.run(q0, ctx_obj)
         else:
             # 多任务：分别执行，最后融合
             await _progress("multi_task_running")
@@ -256,38 +284,21 @@ async def run_chat_turn_async(
                     continue
                 await _progress(f"task_{i+1}_{tp}")
                 if tp == "kb_search":
-                    # 知识库子任务：优先基于外部知识库片段直接生成可用答案；若未命中则给出简洁通用指引（不反问）
-                    try:
-                        items = await five_router.other._external_kb_search(  # type: ignore[attr-defined]
-                            qx,
-                            (ctx_obj.knowledge_base_id or "").strip(),
-                            top_k=5,
-                        )
-                    except Exception:
-                        items = []
-                    if items:
-                        try:
-                            txt = await five_router.other._answer_with_kb(qx, items, ctx_no_stream)  # type: ignore[attr-defined]
-                        except Exception:
-                            txt = "知识库检索到了相关片段，但生成答案失败。"
-                    else:
-                        # 通用兜底：避免“请问你注册什么平台”这类反问，直接给简要步骤
-                        txt = (
-                            "知识库未检索到相关依据。一般注册账号可按以下步骤：打开对应平台/APP的登录页，点击“注册/创建账号”，"
-                            "按提示填写手机号/邮箱，完成验证码校验并设置密码，必要时完成实名认证即可。"
-                        )
-                    parts.append({"type": "kb_search", "question": qx, "text": txt, "items_count": len(items)})
+                    # 知识库子任务：只允许由 OtherAgent 触发外部知识库检索。
+                    # 这样其它业务 Agent（product_query/product_interpret/product_compare）分支不会访问知识库。
+                    txt = await fund_router.other.run(qx, ctx_no_stream)
+                    parts.append({"type": "kb_search", "question": qx, "text": txt, "items_count": 0})
                 elif tp == "free_answer":
-                    txt = await five_router.other._free_answer(qx, ctx_no_stream)  # type: ignore[attr-defined]
+                    txt = await fund_router.other._free_answer(qx, ctx_no_stream)  # type: ignore[attr-defined]
                     parts.append({"type": "free_answer", "question": qx, "text": txt})
                 else:
-                    agent = five_router.route(tp)  # type: ignore[arg-type]
+                    agent = fund_router.route(tp)  # type: ignore[arg-type]
                     txt = await agent.run(qx, ctx_no_stream)
                     parts.append({"type": tp, "question": qx, "text": txt})
 
             await _progress("final_composing")
             # 最终融合：用一次 LLM，把多份结果合并成一个自然答案（支持 token 流式）
-            from agents.five_agent_framework import _llm_call_maybe_stream  # type: ignore
+            from agents.fund_agent_framework import _llm_call_maybe_stream  # type: ignore
             final_inst = (plan.get("final_instruction") or "").strip()
             composer_sys = (
                 "你是金融产品问答助手。你将获得多个子任务的结果（文本）。请把它们融合成一份最终答复。"
@@ -313,13 +324,13 @@ async def run_chat_turn_async(
         logger.warning("五 Agent 执行异常，回退到 OtherAgent: %s", e, exc_info=True)
         await _progress("agent_fallback_other_running")
         try:
-            reply_text = await five_router.other.run(message, ctx_obj)
+            reply_text = await fund_router.other.run(message, ctx_obj)
         except Exception:
             reply_text = ""
     if not reply_text:
         reply_text = "当前无法生成回复，请稍后重试或换一种方式提问。"
     else:
-        reply_text = _strip_think_blocks(reply_text)
+        reply_text = _strip_think_blocks(reply_text, show_thinking=bool(show_thinking))
 
     # 4) 输出合规
     compliance_output = None
@@ -345,9 +356,15 @@ async def run_chat_turn_async(
     # 5) 审计
     if use_audit:
         _ensure_compliance_and_audit(
-            result.answer_id, message, reply_text, intent_slot,
-            compliance_input, compliance_output or compliance_input,
-            session_id, user_id,
+            result.answer_id,
+            message,
+            reply_text,
+            intent=result.intent,
+            slots=result.slots,
+            compliance_input=compliance_input,
+            compliance_output=compliance_output or compliance_input,
+            session_id=session_id,
+            user_id=user_id,
         )
 
     return result
