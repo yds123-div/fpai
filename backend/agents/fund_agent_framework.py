@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-五 Agent 框架（先搭骨架，后续再填提示词/工具调用）：
+理财 Agent 框架（先搭骨架，后续再填提示词/工具调用）：
 
 - IntentClassifierAgent：将用户问题分类为四大类
   - product_query（产品查询）

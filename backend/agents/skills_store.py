@@ -121,6 +121,14 @@ def _seed_builtin_skills() -> None:
             "module_path": "agents.skills.product_compare.runtime",
             "description": "AkShare 聚合基金对比数据（支持上下文回填基金代码）",
         },
+        {
+            "skill_key": "product_interpret",
+            "name": "产品解析取数",
+            "type": "builtin",
+            "enabled": 1,
+            "module_path": "agents.skills.product_interpret.runtime",
+            "description": "AkShare 聚合单只基金深度解读数据（基本信息/业绩/分析/盈亏概率/持仓明细/详情）",
+        },
     ]
     try:
         with get_connection() as conn:
