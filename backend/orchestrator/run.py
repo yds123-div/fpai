@@ -19,6 +19,53 @@ from agents.fund_agent_framework import FundAgentRouter, AgentRunContext
 
 logger = get_logger(__name__)
 
+
+def _format_multi_task_response(
+    parts: list[dict[str, Any]],
+    final_instruction: str | None = None,
+) -> str:
+    """
+    直接格式化拼接多任务结果，不调用LLM合并。
+    
+    格式：【子问题：xxx】\n回答内容\n\n【子问题：yyy】\n回答内容
+    """
+    if not parts:
+        return ""
+    
+    sections = []
+    
+    # 如果有最终指令，放在开头
+    if final_instruction:
+        sections.append(final_instruction.strip())
+        sections.append("")
+    
+    for part in parts:
+        tp = part.get("type", "")
+        question = part.get("question", "")
+        text = (part.get("text") or "").strip()
+        
+        # 清理think块
+        import re
+        text = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE)
+        text = text.strip()
+        
+        # 子问题标题
+        if question:
+            sections.append(f"【子问题：{question}】")
+        
+        if text:
+            sections.append(text)
+        else:
+            sections.append("[该部分内容获取失败]")
+        
+        sections.append("")  # 空行分隔
+    
+    # 清理多余空行
+    result = "\n".join(sections)
+    result = re.sub(r"\n{3,}", "\n\n", result)
+    return result.strip()
+
+
 @dataclass
 class ChatTurnResult:
     """单轮编排结果，与 chat API 契约对齐。"""
@@ -272,55 +319,50 @@ async def run_chat_turn_async(
                 result.trace["intentCategory"] = "other"
                 reply_text = await fund_router.other.run(q0, ctx_obj)
         else:
-            # 多任务：分别执行，最后融合
+            # 多任务：并行执行，直接格式化拼接（不调用LLM合并）
             await _progress("multi_task_running")
-            parts: list[dict[str, Any]] = []
-            for i, t in enumerate(tasks[:4]):  # 限制最多 4 个子任务
+
+            # 定义单任务执行函数
+            async def run_single_task(t: dict, idx: int) -> dict[str, Any] | None:
                 if not isinstance(t, dict):
-                    continue
+                    return None
                 tp = (t.get("type") or "").strip()
                 qx = (t.get("question") or "").strip()
                 if not tp or not qx:
-                    continue
-                await _progress(f"task_{i+1}_{tp}")
-                if tp == "kb_search":
-                    # 知识库子任务：只允许由 OtherAgent 触发外部知识库检索。
-                    # 这样其它业务 Agent（product_query/product_interpret/product_compare）分支不会访问知识库。
-                    txt = await fund_router.other.run(qx, ctx_no_stream)
-                    parts.append({"type": "kb_search", "question": qx, "text": txt, "items_count": 0})
-                elif tp == "free_answer":
-                    txt = await fund_router.other._free_answer(qx, ctx_no_stream)  # type: ignore[attr-defined]
-                    parts.append({"type": "free_answer", "question": qx, "text": txt})
-                else:
-                    agent = fund_router.route(tp)  # type: ignore[arg-type]
-                    txt = await agent.run(qx, ctx_no_stream)
-                    parts.append({"type": tp, "question": qx, "text": txt})
+                    return None
+                await _progress(f"task_{idx+1}_{tp}")
+                try:
+                    if tp == "kb_search":
+                        txt = await fund_router.other.run(qx, ctx_no_stream)
+                        return {"type": "kb_search", "question": qx, "text": txt, "items_count": 0}
+                    elif tp == "free_answer":
+                        txt = await fund_router.other._free_answer(qx, ctx_no_stream)  # type: ignore[attr-defined]
+                        return {"type": "free_answer", "question": qx, "text": txt}
+                    else:
+                        agent = fund_router.route(tp)  # type: ignore[arg-type]
+                        txt = await agent.run(qx, ctx_no_stream)
+                        return {"type": tp, "question": qx, "text": txt}
+                except Exception as e:
+                    logger.warning(f"任务 {idx+1} 执行失败: {e}")
+                    return {"type": tp, "question": qx, "text": f"[执行失败: {str(e)}]"}
+
+            # 并行执行所有任务
+            tasks_to_run = [t for t in tasks[:4] if isinstance(t, dict)]
+            results = await asyncio.gather(*[
+                run_single_task(t, i) for i, t in enumerate(tasks_to_run)
+            ])
+
+            # 过滤有效结果，保持顺序
+            parts = [r for r in results if r is not None]
 
             await _progress("final_composing")
-            # 最终融合：用一次 LLM，把多份结果合并成一个自然答案（支持 token 流式）
-            from agents.fund_agent_framework import _llm_call_maybe_stream  # type: ignore
+            # 直接格式化拼接，不调用LLM合并
             final_inst = (plan.get("final_instruction") or "").strip()
-            composer_sys = (
-                "你是金融产品问答助手。你将获得多个子任务的结果（文本）。请把它们融合成一份最终答复。"
-                "要求："
-                "0) 必须按“子任务 question”分别作答，并把每个子任务的 question 作为小标题输出，格式示例："
-                "【子问题：...】\\n<回答>\\n\\n【子问题：...】\\n<回答>；"
-                "并且必须严格按 tasks 数组中的顺序输出（与用户提问顺序一致）。"
-                "1) 只输出一份最终答案，不要再写“我需要分开说明/以下是两个问题/请问你想注册哪个平台/抱歉我无法获取实时数据”等跑题或重复的话；"
-                "2) 直接给出可执行结论与步骤；"
-                "3) 若某部分来自知识库，请在该部分末尾用一句话标注“依据来自知识库”；"
-                "4) 若某子任务内容为空或失败，才说明缺失，禁止编造。"
-                "5) 不要使用 markdown（不要用 **、---、# 等）。"
-                "重要：不要输出任何 <think> 或推理过程，只输出最终结果文本。"
-            )
-            composer_user = f"用户原始问题：{message}\n\n融合指令：{final_inst or '请将各子任务结果合并为一个答案。'}\n\n子任务结果(JSON)：\n{json.dumps(parts, ensure_ascii=False)}"
-            reply_text = await _llm_call_maybe_stream(
-                ctx=ctx_obj,
-                messages=[{"role": "system", "content": composer_sys}, {"role": "user", "content": composer_user}],
-            )
-    except Exception as e:
+            reply_text = _format_multi_task_response(parts, final_inst)
+
         # 删除 FAQ 那套路由：不再回退到 AgentScope Router/Toolkit（faq_query/product_list_query 等）
         # 统一回退到 5-Agent 的 OtherAgent（优先外部知识库检索，查不到再自由回答）
+    except Exception as e:   
         logger.warning("五 Agent 执行异常，回退到 OtherAgent: %s", e, exc_info=True)
         await _progress("agent_fallback_other_running")
         try:

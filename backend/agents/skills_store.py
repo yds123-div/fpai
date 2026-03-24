@@ -129,6 +129,14 @@ def _seed_builtin_skills() -> None:
             "module_path": "agents.skills.product_interpret.runtime",
             "description": "AkShare 聚合单只基金深度解读数据（基本信息/业绩/分析/盈亏概率/持仓明细/详情）",
         },
+        {
+            "skill_key": "fund_name_to_code",
+            "name": "基金名称转代码",
+            "type": "builtin",
+            "enabled": 1,
+            "module_path": "agents.skills.fund_name_to_code.runtime",
+            "description": "根据基金名称查询基金代码，支持模糊匹配",
+        },
     ]
     try:
         with get_connection() as conn:
