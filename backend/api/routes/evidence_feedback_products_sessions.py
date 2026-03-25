@@ -118,6 +118,7 @@ PRODUCTS_MODEL_CODE = "products"
 
 @router.get("/products/search")
 async def products_search(
+    productCode: str | None = None,
     productType: str | None = None,
     keyword: str | None = None,
     page: int = 1,
@@ -131,22 +132,43 @@ async def products_search(
     page = max(1, page)
     pageSize = max(1, min(pageSize, 100))
     params: dict[str, Any] = {"page": page, "page_size": pageSize}
+    if productCode:
+        params["product_code"] = productCode
     if productType:
         params["product_type"] = productType
     if keyword:
         params["keyword"] = keyword
+    # 优先使用本地同步基金库（支持模糊查询）；为空时再回退到既有 data_access。
+    records: list[dict[str, Any]] = []
+    total: int = 0
     try:
-        from data_access import get_data
-        records, total = get_data(
-            model_code=PRODUCTS_MODEL_CODE,
-            request_params=params,
-            permission_context=_permission_context(auth),
+        from products.store import search_products
+
+        records, total = search_products(
+            product_code=productCode,
+            product_type=productType,
+            keyword=keyword,
+            page=page,
+            page_size=pageSize,
         )
     except Exception:
-        return JSONResponse(
-            status_code=200,
-            content=envelope(code=ErrorCode.INTERNAL_ERROR, message=message_for(ErrorCode.INTERNAL_ERROR), data=None),
-        )
+        records, total = [], 0
+
+    if not records and total == 0:
+        try:
+            from data_access import get_data
+
+            records, total_fallback = get_data(
+                model_code=PRODUCTS_MODEL_CODE,
+                request_params=params,
+                permission_context=_permission_context(auth),
+            )
+            total = int(total_fallback or 0)
+        except Exception:
+            return JSONResponse(
+                status_code=200,
+                content=envelope(code=ErrorCode.INTERNAL_ERROR, message=message_for(ErrorCode.INTERNAL_ERROR), data=None),
+            )
     return JSONResponse(
         status_code=200,
         content=envelope(
@@ -155,6 +177,83 @@ async def products_search(
             data={"products": records or [], "total": total or 0},
         ),
     )
+
+
+@router.post("/products/sync")
+async def products_sync(limit: int = 100):
+    """
+    同步基金产品数据（AkShare）到本地库。
+    - 先限定最多 100 条
+    """
+    lim = max(1, min(int(limit or 100), 100))
+    try:
+        import akshare as ak
+    except Exception:
+        return JSONResponse(
+            status_code=200,
+            content=envelope(
+                code=ErrorCode.SERVICE_UNAVAILABLE,
+                message="后端缺少 akshare 依赖，无法同步基金数据",
+                data=None,
+            ),
+        )
+    try:
+        fn = getattr(ak, "fund_name_em", None)
+        if not callable(fn):
+            return JSONResponse(
+                status_code=200,
+                content=envelope(
+                    code=ErrorCode.SERVICE_UNAVAILABLE,
+                    message="当前 akshare 版本不支持 fund_name_em 接口",
+                    data=None,
+                ),
+            )
+        df = fn()
+        if df is None or not hasattr(df, "to_dict"):
+            return JSONResponse(
+                status_code=200,
+                content=envelope(code=ErrorCode.SERVICE_UNAVAILABLE, message="AkShare 返回数据为空", data=None),
+            )
+        rows = df.to_dict(orient="records")[:lim]
+        items: list[dict[str, Any]] = []
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            code = str(r.get("基金代码") or r.get("code") or r.get("fund_code") or "").strip()
+            name = str(r.get("基金简称") or r.get("基金名称") or r.get("name") or r.get("fund_name") or "").strip()
+            ptype = str(r.get("基金类型") or r.get("type") or r.get("fund_type") or "").strip()
+            if not code or not name:
+                continue
+            items.append(
+                {
+                    "code": code,
+                    "name": name,
+                    "productType": ptype,
+                    "riskLevel": "-",
+                    "term": "-",
+                    "source": "akshare",
+                }
+            )
+        from products.store import upsert_products
+
+        affected = upsert_products(items)
+        return JSONResponse(
+            status_code=200,
+            content=envelope(
+                code=ErrorCode.OK,
+                message="ok",
+                data={"limit": lim, "received": len(rows), "valid": len(items), "affected": affected},
+            ),
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=200,
+            content=envelope(
+                code=ErrorCode.SERVICE_UNAVAILABLE,
+                message=f"同步基金数据失败：{e}",
+                data=None,
+            ),
+        )
 
 
 # ---------- Sessions ----------

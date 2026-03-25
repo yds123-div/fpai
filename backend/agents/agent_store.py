@@ -75,6 +75,7 @@ def _seed_builtin_agents() -> None:
         from agents.fund_agent.product_query.agent import DEFAULT_SYSTEM_PROMPT as PQ_PROMPT
         from agents.fund_agent.product_interpret.agent import DEFAULT_SYSTEM_PROMPT as PI_PROMPT
         from agents.fund_agent.product_compare.agent import DEFAULT_SYSTEM_PROMPT as PC_PROMPT
+        from agents.fund_agent.product_recommend.agent import DEFAULT_SYSTEM_PROMPT as PR_PROMPT
         from agents.fund_agent.other.agent import DEFAULT_SYSTEM_PROMPT as O_PROMPT
         from agents.fund_agent_framework import COORDINATOR_DEFAULT_SYSTEM_PROMPT
     except Exception:
@@ -106,6 +107,15 @@ def _seed_builtin_agents() -> None:
             "enabled": 1,
             "system_prompt": PC_PROMPT or "",
             "skill_keys": '["product_compare"]',
+            "model_id": None,
+        },
+        {
+            "agent_key": "product_recommend",
+            "name": "产品推荐",
+            "type": "builtin",
+            "enabled": 1,
+            "system_prompt": PR_PROMPT or "",
+            "skill_keys": '["product_recommend"]',
             "model_id": None,
         },
         {
@@ -162,6 +172,18 @@ def _seed_builtin_agents() -> None:
                             s["agent_key"],
                         ),
                     )
+                    # product_recommend：为了避免历史 seed 错误（例如写成 product_query/product_compare）
+                    # 在旧记录 skill_keys 非空时无法被上面的 CASE 更新，这里做一次定向兜底修正。
+                    if s.get("agent_key") == "product_recommend":
+                        cur.execute(
+                            """
+                            UPDATE agent_profiles
+                            SET skill_keys=%s
+                            WHERE agent_key=%s AND deleted_at IS NULL
+                              AND (skill_keys IS NULL OR skill_keys='' OR skill_keys LIKE '%product_query%')
+                            """,
+                            (s.get("skill_keys") or "[]", s["agent_key"]),
+                        )
             conn.commit()
     except Exception as e:
         logger.warning("seed builtin agents failed: %s", e)

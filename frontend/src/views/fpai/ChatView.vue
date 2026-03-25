@@ -3,19 +3,10 @@
     <div class="chat-head">
       <a-typography-title :level="4" style="margin: 0">智能对话</a-typography-title>
       <a-select
-        v-model:value="selectedKnowledgeBase"
-        :options="knowledgeBaseOptions"
-        placeholder="选择知识库（用于其它问题检索）"
-        style="min-width: 260px"
-        allow-clear
-        show-search
-        :filter-option="filterOption"
-      />
-      <a-select
         v-model:value="selectedModel"
         :options="modelOptions"
         placeholder="选择模型"
-        style="min-width: 220px"
+        style="min-width: 150px"
         allow-clear
       />
     </div>
@@ -95,16 +86,34 @@
     </div>
 
     <div class="input-area">
+      
       <a-textarea
         v-model:value="inputText"
-        placeholder="输入您的问题…"
+        placeholder="请输入您的问题…"
         :auto-size="{ minRows: 2, maxRows: 4 }"
         :disabled="loading"
         @pressEnter="handlePressEnter"
+        class="composer-input"
       />
-      <a-button type="primary" :loading="loading" @click="send" style="margin-top: 8px">
-        发送
-      </a-button>
+        
+      <div class="composer">
+        <div class="composer-actions-start">
+          <a-select
+            v-model:value="selectedKnowledgeBase"
+            :options="knowledgeBaseOptions"
+            placeholder="选择知识库"
+            allow-clear
+            show-search
+            :filter-option="filterOption"
+            class="composer-kb"
+          />
+        </div>
+        <div class="composer-actions-end">
+          <a-button type="primary" :loading="loading" @click="send" class="composer-send">
+            发送
+          </a-button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -357,5 +366,53 @@ function send() {
   flex-shrink: 0;
   padding: 12px 0;
   border-top: 1px solid #eee;
+}
+
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.composer-input {
+  flex: 1;
+}
+.composer-actions-start {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  justify-content: flex-start;
+  flex-shrink: 0;
+}
+
+.composer-actions-end {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+.composer-kb {
+  min-width: 10%;
+}
+
+.composer-send {
+  min-width: 92px;
+}
+
+@media (max-width: 768px) {
+  .composer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .composer-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .composer-kb {
+    min-width: 0;
+    flex: 1;
+  }
 }
 </style>

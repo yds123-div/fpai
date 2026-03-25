@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router'
 import { useUserStore } from '@/store/user'
+import { getUserMenus, type MenuItem } from '@/api/user'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -150,11 +151,53 @@ router.beforeEach((to, _from, next) => {
   } else if (to.path.startsWith('/admin')) {
     const roles = (userStore.userInfo as any)?.roles
     const isAdmin = Array.isArray(roles) && roles.map((x: any) => String(x).toLowerCase()).includes('admin')
-    if (!isAdmin) {
-      next({ path: '/' })
-      return
+    if (isAdmin) return next()
+
+    // 非 admin：允许进入“有后台菜单权限”的页面
+    // 后端菜单权限来自：/rbac/menus/me（由角色->菜单映射决定）
+    const toPath = (to.path || '').replace(/\/+$/, '') || '/'
+    const cacheKey = 'user_admin_menus'
+    const now = Date.now()
+    const cacheRaw = (sessionStorage.getItem(cacheKey) || '').trim()
+    let cached: { ts: number; menus: MenuItem[] } | null = null
+    if (cacheRaw) {
+      try {
+        cached = JSON.parse(cacheRaw) as { ts: number; menus: MenuItem[] }
+      } catch {
+        cached = null
+      }
     }
-    next()
+    const ttlMs = 30_000
+
+    const loadMenus = async () => {
+      if (cached && (now - cached.ts) < ttlMs && Array.isArray(cached.menus)) {
+        return cached.menus
+      }
+      const res = await getUserMenus()
+      const menus = Array.isArray(res.data) ? res.data : []
+      try {
+        sessionStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), menus }))
+      } catch {
+        // ignore
+      }
+      return menus
+    }
+
+    loadMenus()
+      .then((menus) => {
+        const normalizedMenus = (menus || []).filter((m) => (m.path || '').trim().length > 0)
+        const allowed =
+          toPath === '/admin' ||
+          normalizedMenus.some((m) => {
+            const menuPath = String(m.path || '').replace(/\/+$/, '')
+            if (!menuPath) return false
+            return toPath === menuPath || toPath.startsWith(menuPath + '/')
+          })
+
+        if (!allowed) next({ path: '/' })
+        else next()
+      })
+      .catch(() => next({ path: '/' }))
   } else {
     next()
   }

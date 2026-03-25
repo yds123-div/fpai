@@ -371,8 +371,6 @@ def create_user(
     if not pwd_hash and _BCRYPT_AVAILABLE:
         return None, None
     try:
-        # 生成用户 ID；沿用 u_ 前缀，便于与其他实体区分
-        user_id = "u_" + uuid.uuid4().hex
         with get_connection() as conn:
             if not conn:
                 return None, None
@@ -381,11 +379,28 @@ def create_user(
                 if conflict:
                     logger.info("create_user: %s 已存在", conflict)
                     return None, conflict
-                cur.execute(
-                    """INSERT INTO users (id, account, password_hash, name, employee_no, email)
-                       VALUES (%s, %s, %s, %s, %s, %s)""",
-                    (user_id, account, pwd_hash, name_s, employee_no_s, email_s),
-                )
+
+                # 优先：让数据库自增/生成主键（不显式插入 id）
+                # 回退：若你的库里 users.id 不是自增（例如 VARCHAR 主键无默认值），再显式插入 u_{uuid}。
+                try:
+                    cur.execute(
+                        """INSERT INTO users (account, password_hash, name, employee_no, email)
+                           VALUES (%s, %s, %s, %s, %s)""",
+                        (account, pwd_hash, name_s, employee_no_s, email_s),
+                    )
+                except Exception as e:
+                    # 仅在 "id 没有默认值"（例如 VARCHAR 主键无默认值）时才回退写入 id。
+                    # 这样在 users.id 为 INT AUTO_INCREMENT 时不会误触发 u_{uuid} 回退。
+                    msg = str(e)
+                    if ("doesn't have a default value" in msg) or ("Field 'id'" in msg):
+                        user_id = "u_" + uuid.uuid4().hex
+                        cur.execute(
+                            """INSERT INTO users (id, account, password_hash, name, employee_no, email)
+                               VALUES (%s, %s, %s, %s, %s, %s)""",
+                            (user_id, account, pwd_hash, name_s, employee_no_s, email_s),
+                        )
+                    else:
+                        raise
                 conn.commit()
         with get_connection() as conn2:
             if not conn2:

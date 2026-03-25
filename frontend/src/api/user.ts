@@ -50,7 +50,8 @@ export async function getUserInfo(): Promise<{ data: UserInfo }> {
           account: u.account,
           email: u.email,
           employee_no: u.employee_no,
-          name: u.name
+          name: u.name,
+          roles: Array.isArray(u.roles) ? u.roles : []
         }
       }
     }
@@ -63,7 +64,8 @@ export async function getUserInfo(): Promise<{ data: UserInfo }> {
       account: 'demo',
       email: 'demo@example.com',
       employee_no: '',
-      name: '演示用户'
+      name: '演示用户',
+      roles: []
     }
   }
 }

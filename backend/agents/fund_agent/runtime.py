@@ -239,7 +239,10 @@ async def _llm_call_maybe_stream(
             model=ctx.model_name,
             base_url=ctx.base_url,
             api_key=ctx.api_key,
-            enable_thinking=bool(getattr(ctx, "show_thinking", False)),
+            # DashScope/兼容接口对“非流式调用”有强约束：
+            # enable_thinking 必须为 false，否则会直接 400 invalid_request_error。
+            # 因此非流式分支一律禁用 thinking（show_thinking 仅用于真正流式的情形）。
+            enable_thinking=False,
         )
     ).strip()
 

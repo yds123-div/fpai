@@ -7,9 +7,9 @@
 SET NAMES utf8mb4;
 
 -- 基础用户：默认管理员账号（密码需在应用层重置）
-INSERT INTO `users` (`id`, `account`, `password_hash`, `name`, `employee_no`, `email`)
+INSERT INTO `users` (`account`, `password_hash`, `name`, `employee_no`, `email`)
 VALUES
-  ('u_admin', 'admin', '$2b$12$REPLACE_WITH_REAL_HASH_____________', '系统管理员', '000000', 'admin@example.com')
+  ('admin', '$2b$12$REPLACE_WITH_REAL_HASH_____________', '系统管理员', '000000', 'admin@example.com')
 ON DUPLICATE KEY UPDATE
   `name` = VALUES(`name`),
   `employee_no` = VALUES(`employee_no`),

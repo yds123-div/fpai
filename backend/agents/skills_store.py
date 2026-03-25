@@ -130,6 +130,14 @@ def _seed_builtin_skills() -> None:
             "description": "AkShare 聚合单只基金深度解读数据（基本信息/业绩/分析/盈亏概率/持仓明细/详情）",
         },
         {
+            "skill_key": "product_recommend",
+            "name": "产品推荐取数",
+            "type": "builtin",
+            "enabled": 1,
+            "module_path": "agents.skills.product_recommend.runtime",
+            "description": "根据客户画像偏好（低风险/稳健、理财/债券/少量混合等）筛选候选产品并输出推荐候选数据",
+        },
+        {
             "skill_key": "fund_name_to_code",
             "name": "基金名称转代码",
             "type": "builtin",

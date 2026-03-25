@@ -34,14 +34,7 @@
               <StarOutlined />
               <span>产品推荐</span>
             </a>
-            <a 
-              :class="['nav-link', { 'active': isActiveMenu.report }]"
-              @click="handleNav('/fpai/report')"
-            >
-              <FileTextOutlined />
-              <span>报告生成</span>
-            </a>
-            <a 
+          <!--   <a 
               :class="['nav-link', { 'active': isActiveMenu.evidence }]"
               @click="handleNav('/fpai/evidence')"
             >
@@ -55,6 +48,7 @@
               <MessageOutlined />
               <span>回答反馈</span>
             </a>
+            -->
             <a 
               :class="['nav-link', { 'active': isActiveMenu.products }]"
               @click="handleNav('/fpai/products')"
@@ -89,7 +83,7 @@
                   <UserOutlined />
                   <span style="margin-left: 10px;">个人信息</span>
                 </a-menu-item>
-                <a-menu-item v-if="isAdmin" key="settings">
+                <a-menu-item v-if="canAccessAdmin" key="settings">
                   <SettingOutlined />
                   <span style="margin-left: 10px;">后台管理</span>
                 </a-menu-item>
@@ -182,17 +176,55 @@ import {
   LogoutOutlined,
 } from '@ant-design/icons-vue'
 import { useUserStore } from '@/store/user'
-import { updateCurrentUser, changePassword, getUserInfo } from '@/api/user'
+import { updateCurrentUser, changePassword, getUserInfo, getUserMenus } from '@/api/user'
 import { encryptPassword } from '@/utils/crypto'
 
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
-const isAdmin = computed(() => {
+const isAdminByRole = computed(() => {
   const roles = (userStore.userInfo as any)?.roles
   if (!Array.isArray(roles)) return false
   return roles.map((x: any) => String(x).toLowerCase()).includes('admin')
 })
+
+const canAccessAdmin = ref(false)
+const adminHomePath = ref('/admin/theme-settings')
+
+const initAdminAccess = async () => {
+  if (isAdminByRole.value) {
+    canAccessAdmin.value = true
+    adminHomePath.value = '/admin/theme-settings'
+    return
+  }
+  try {
+    const res = await getUserMenus()
+    const menus = Array.isArray(res.data) ? res.data : []
+    const first = menus.find(m => (m.path || '').startsWith('/admin')) || menus[0]
+    if (first?.path) {
+      canAccessAdmin.value = true
+      adminHomePath.value = first.path
+    } else {
+      canAccessAdmin.value = false
+    }
+  } catch {
+    canAccessAdmin.value = false
+  }
+}
+
+watch(
+  () => isAdminByRole.value,
+  (val) => {
+    if (val) {
+      canAccessAdmin.value = true
+      adminHomePath.value = '/admin/theme-settings'
+    } else {
+      canAccessAdmin.value = false
+      initAdminAccess()
+    }
+  },
+  { immediate: true }
+)
 
 // 判断当前激活的菜单项
 const isActiveMenu = computed(() => {
@@ -394,7 +426,7 @@ const handleMenuClick = ({ key }: { key: string }) => {
       profileModalVisible.value = true
       break
     case 'settings':
-      router.push('/admin/theme-settings')
+      router.push(adminHomePath.value || '/admin/theme-settings')
       break
     case 'logout':
       Modal.confirm({
