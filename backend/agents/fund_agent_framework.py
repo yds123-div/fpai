@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from dataclasses import replace
 from typing import Any, Literal
 
 from pkg.logger import get_logger
@@ -32,7 +33,15 @@ from agents.fund_agent.product_compare.agent import ProductCompareAgent
 from agents.fund_agent.other.agent import OtherAgent
 
 # 公共运行时：上下文/LLM调用/进度回调等（避免循环导入）
-from agents.fund_agent.runtime import AgentRunContext, BaseBusinessAgent, _emit_progress, _llm_call_maybe_stream
+from agents.fund_agent.runtime import (
+    AgentRunContext,
+    BaseBusinessAgent,
+    _emit_progress,
+    _llm_call_maybe_stream,
+    resolve_agent_skill_keys,
+    resolve_agent_overrides,
+    run_configured_skills,
+)
 
 
 def _safe_first_str(x: Any) -> str:
@@ -124,6 +133,154 @@ def _safe_json_loads(s: str) -> Any:
         return s
 
 
+def _extract_codes_from_text(text: str) -> list[str]:
+    import re
+    s = _safe_first_str(text)
+    if not s:
+        return []
+    return re.findall(r"(?<!\d)\d{6}(?!\d)", s)
+
+
+def _remove_untrusted_codes_from_question(question: str) -> str:
+    """
+    清理 question 中可能由 LLM 臆测的基金代码，避免错误代码下钻到业务 agent。
+    """
+    import re
+    q = _safe_first_str(question)
+    if not q:
+        return q
+    # 移除“（基金代码：xxxxxx）/基金代码：xxxxxx”这类附注
+    q = re.sub(r"[（(]\s*基金代码\s*[：:]\s*(?:\d{6})(?:[、,，]\s*\d{6})*\s*[)）]", "", q)
+    q = re.sub(r"基金代码\s*[：:]\s*(?:\d{6})(?:[、,，]\s*\d{6})*", "", q)
+    # 移除孤立 6 位数字
+    q = re.sub(r"(?<!\d)\d{6}(?!\d)", "", q)
+    # 清理多余空白与标点边界
+    q = re.sub(r"\s{2,}", " ", q).strip(" ，,;；。")
+    return q.strip()
+
+
+def _extract_codes_from_planner_skill_payload(payload: Any) -> list[str]:
+    """
+    从 task_planner skill 返回结果中提取 6 位基金代码。
+    兼容结构：
+    - {"skill":"fund_name_to_code","payload":{"ok":true,"codes":[...]}}
+    - {"skill":"fund_name_to_code","payload":{"ok":true,"matches":[{"code":"..."}]}}
+    """
+    out: list[str] = []
+    if not isinstance(payload, dict):
+        return out
+    p = payload.get("payload")
+    if not isinstance(p, dict):
+        return out
+    if p.get("ok") is not True:
+        return out
+
+    # 1) 直接 codes
+    raw_codes = p.get("codes")
+    if isinstance(raw_codes, list):
+        for c in raw_codes:
+            s = _safe_first_str(c)
+            if s.isdigit() and len(s) == 6:
+                out.append(s)
+
+    # 2) matches[].code
+    raw_matches = p.get("matches")
+    if isinstance(raw_matches, list):
+        for m in raw_matches:
+            if not isinstance(m, dict):
+                continue
+            s = _safe_first_str(m.get("code"))
+            if s.isdigit() and len(s) == 6:
+                out.append(s)
+
+    # 去重保序
+    uniq: list[str] = []
+    seen: set[str] = set()
+    for c in out:
+        if c in seen:
+            continue
+        seen.add(c)
+        uniq.append(c)
+    return uniq
+
+
+def _extract_name_code_pairs_from_planner_skill_payload(payload: Any) -> list[tuple[str, str]]:
+    """
+    从 task_planner skill 返回结果提取 (基金名称, 基金代码) 对。
+    仅使用 payload.matches 里的 name/code 字段。
+    """
+    out: list[tuple[str, str]] = []
+    if not isinstance(payload, dict):
+        return out
+    p = payload.get("payload")
+    if not isinstance(p, dict):
+        return out
+    if p.get("ok") is not True:
+        return out
+    raw_matches = p.get("matches")
+    if not isinstance(raw_matches, list):
+        return out
+    for m in raw_matches:
+        if not isinstance(m, dict):
+            continue
+        name = _safe_first_str(m.get("name"))
+        code = _safe_first_str(m.get("code"))
+        if not name or not code or (not code.isdigit()) or len(code) != 6:
+            continue
+        out.append((name, code))
+    return out
+
+
+def _planner_skill_indicates_no_code(payload: Any) -> bool:
+    """
+    判断 task_planner 的基金名称转代码结果是否明确表示“未查到代码”。
+    """
+    if not isinstance(payload, dict):
+        return False
+    p = payload.get("payload")
+    if not isinstance(p, dict):
+        return False
+    if p.get("ok") is True:
+        return False
+    mode = _safe_first_str(p.get("mode"))
+    return mode in ("no_match", "no_keyword", "no_data", "fetch_error")
+
+
+def _pick_codes_for_question(question: str, name_code_pairs: list[tuple[str, str]], fallback_codes: list[str]) -> list[str]:
+    """
+    基于子任务 question 匹配更精准的基金代码：
+    - 优先用名称命中 question 的 code（按名称长度降序，避免短词误命中）
+    - 未命中时回退到全局代码列表
+    """
+    q = _safe_first_str(question)
+    if not q:
+        return list(fallback_codes)
+
+    picked: list[str] = []
+    for name, code in sorted(name_code_pairs, key=lambda x: len(x[0]), reverse=True):
+        if name in q and code not in picked:
+            picked.append(code)
+    if picked:
+        return picked
+    return list(fallback_codes)
+
+
+def _rewrite_task_question_with_codes(question: str, codes: list[str], task_type: str) -> str:
+    """
+    将规划阶段得到的基金代码注入到子任务 question，确保下游 agent 可直接消费。
+    """
+    q = _safe_first_str(question)
+    if not q or not codes:
+        return q
+    # question 中已含代码则不重复注入
+    import re
+    if re.search(r"(?<!\d)\d{6}(?!\d)", q):
+        return q
+    if task_type == "product_compare" and len(codes) >= 2:
+        return f"{q}（基金代码：{'、'.join(codes[:5])}）"
+    return f"{q}（基金代码：{codes[0]}）"
+
+
 def _heuristic_classify(text: str) -> IntentCategory:
     """轻量启发式分类：保证在 LLM 不可用时也能工作。"""
     t = (text or "").strip()
@@ -188,6 +345,30 @@ def _heuristic_classify(text: str) -> IntentCategory:
     return "other"
 
 
+COORDINATOR_DEFAULT_SYSTEM_PROMPT = """
+你是一个“任务规划助手”，负责把用户输入拆分成可执行的子任务，并输出严格 JSON。
+
+可用任务类型 type（只能从下面选）：
+- product_compare：基金对比（通常包含“对比/比较/哪个好/差异”或出现两只及以上 6 位基金代码/基金名称）
+- product_interpret：单只基金解读/解析（通常只出现一只基金代码/基金名称，并要求分析、风险、适合人群等）
+- product_query：基金榜单/筛选/推荐（如“近期收益高、风险低、Top5、有哪些”）
+- other：其它问答（统一交由 OtherAgent 处理：优先查询知识库，未命中再用大模型回答）
+
+输出 JSON 结构如下（不得输出除 JSON 外的任何文字）：
+{
+  "multi": true|false,
+  "tasks": [
+    {"type": "product_compare|product_interpret|product_query|other", "question": "子问题（尽量短）"}
+  ],
+  "final_instruction": "如何融合 tasks 的结果形成最终答复（1-2 句）"
+}
+
+规则：
+- 如果用户输入明显包含两个及以上不同子任务（例如“对比基金 + 同时问制度流程”），multi=true，tasks 至少 2 个。
+- 子任务 question 必须是中文自然句，且能直接交给对应智能体执行。
+""".strip()
+
+
 class IntentClassifierAgent:
     """
     意图识别 Agent（框架版）。
@@ -212,6 +393,7 @@ class CoordinatorAgent:
         q = (question or "").strip()
         if not q:
             return {"multi": False, "tasks": [], "final_instruction": ""}
+        user_input_codes = _extract_codes_from_text(q)
 
         # 对“你好/闲聊”等纯客套输入走启发式短路：
         # - 避免先调用一次 LLM 做 plan（你日志里会看到 tasks=[] 的那次）
@@ -256,42 +438,45 @@ class CoordinatorAgent:
         # 没有知识库可用时，没必要拆 kb_search
         kb_id = (ctx.knowledge_base_id or "").strip()
 
-        system = """
-你是一个“任务规划助手”，负责把用户输入拆分成可执行的子任务，并输出严格 JSON。
+        planner_ctx = replace(ctx)
+        system_prompt, planner_ctx = resolve_agent_overrides(
+            agent_key="task_planner",
+            ctx=planner_ctx,
+            default_system_prompt=COORDINATOR_DEFAULT_SYSTEM_PROMPT,
+        )
 
-可用任务类型 type（只能从下面选）：
-- product_compare：基金对比（通常包含“对比/比较/哪个好/差异”或出现两只及以上 6 位基金代码/基金名称）
-- product_interpret：单只基金解读/解析（通常只出现一只基金代码/基金名称，并要求分析、风险、适合人群等）
-- product_query：基金榜单/筛选/推荐（如“近期收益高、风险低、Top5、有哪些”）
-- kb_search：知识库检索并返回依据（仅当用户明确提到“根据知识库/制度/文档/流程/条款/依据”等，且系统存在 knowledge_base_id 时才使用）
-- free_answer：无需工具的通用回答
+        # 任务规划器也支持配置 skill_keys（例如 fund_name_to_code）：
+        # 将 skill 结果注入规划提示，帮助 Planner 更准确拆解/改写子问题。
+        planner_skill_payload: Any = None
+        try:
+            planner_skill_keys = resolve_agent_skill_keys(agent_key="task_planner") or []
+            if planner_skill_keys:
+                await _emit_progress(ctx, "coordinator_skill_fetching")
+                planner_skill_payload = await run_configured_skills(
+                    skill_keys=planner_skill_keys,
+                    question=q,
+                    ctx=planner_ctx,
+                )
+        except Exception as e:
+            logger.warning("Coordinator planner skills failed: %s", e)
+            planner_skill_payload = None
 
-输出 JSON 结构如下（不得输出除 JSON 外的任何文字）：
-{
-  "multi": true|false,
-  "tasks": [
-    {"type": "product_compare|product_interpret|product_query|kb_search|free_answer", "question": "子问题（尽量短）"}
-  ],
-  "final_instruction": "如何融合 tasks 的结果形成最终答复（1-2 句）"
-}
-
-规则：
-- 如果用户输入明显包含两个及以上不同子任务（例如“对比基金 + 同时问知识库流程/条款/依据”），multi=true，tasks 至少 2 个。
-- 若用户没有选择知识库（knowledge_base_id 为空），禁止输出 kb_search。
-- 子任务 question 必须是中文自然句，且能直接交给对应智能体执行。
-""".strip()
-
-        user = f"knowledge_base_id={(kb_id or '（空）')}\n用户输入：{q}"
+        user = (
+            f"knowledge_base_id={(kb_id or '（空）')}\n"
+            f"用户输入：{q}\n"
+            f"任务规划辅助数据（来自 task_planner skills，可为空）："
+            f"{json.dumps(planner_skill_payload, ensure_ascii=False)}"
+        )
         try:
             await _emit_progress(ctx, "coordinator_planning")
             from model_gateway.llm import llm_chat
 
             raw = await asyncio.to_thread(
                 llm_chat,
-                [{"role": "system", "content": system}, {"role": "user", "content": user}],
-                model=ctx.model_name,
-                base_url=ctx.base_url,
-                api_key=ctx.api_key,
+                [{"role": "system", "content": system_prompt}, {"role": "user", "content": user}],
+                model=planner_ctx.model_name,
+                base_url=planner_ctx.base_url,
+                api_key=planner_ctx.api_key,
             )
             raw_text = _safe_first_str(raw)
             json_text = _extract_json_object(raw_text) or raw_text
@@ -300,6 +485,8 @@ class CoordinatorAgent:
                 raise ValueError("plan json parse failed")
             # 归一化 tasks
             tasks = plan.get("tasks") or []
+            planner_codes = _extract_codes_from_planner_skill_payload(planner_skill_payload)
+            planner_name_code_pairs = _extract_name_code_pairs_from_planner_skill_payload(planner_skill_payload)
             norm: list[dict[str, Any]] = []
             for t in tasks:
                 if not isinstance(t, dict):
@@ -308,11 +495,54 @@ class CoordinatorAgent:
                 qq = _safe_first_str(t.get("question"))
                 if not tp or not qq:
                     continue
-                if tp == "kb_search" and not kb_id:
+                # 兼容旧提示词输出：kb_search/free_answer 统一映射到 other
+                if tp in ("kb_search", "free_answer"):
+                    tp = "other"
+                if tp not in ("product_query", "product_interpret", "product_compare", "other"):
                     continue
-                if tp not in ("product_query", "product_interpret", "product_compare", "kb_search", "free_answer"):
-                    continue
+                if tp in ("product_query", "product_interpret", "product_compare"):
+                    qq_before = qq
+                    codes_for_task = _pick_codes_for_question(qq, planner_name_code_pairs, planner_codes)
+                    if codes_for_task:
+                        qq = _rewrite_task_question_with_codes(qq, codes_for_task, tp)
+                        logger.debug(
+                            "planner task code mapping: type=%s, question='%s' -> '%s', matched_codes=%s",
+                            tp,
+                            qq_before,
+                            qq,
+                            codes_for_task,
+                        )
+                    else:
+                        # 未命中任何可信 code 时，清理规划器可能臆测出的代码
+                        qq_codes = _extract_codes_from_text(qq)
+                        trusted = set(user_input_codes + planner_codes)
+                        if any(c not in trusted for c in qq_codes):
+                            qq = _remove_untrusted_codes_from_question(qq)
+                            logger.debug(
+                                "planner task code sanitized: type=%s, question='%s' -> '%s', task_codes=%s, trusted_codes=%s",
+                                tp,
+                                qq_before,
+                                qq,
+                                qq_codes,
+                                list(trusted),
+                            )
                 norm.append({"type": tp, "question": qq})
+
+            # 强约束：若用户未提供代码，且名称转代码也未命中，则直接中断，避免错误下钻。
+            requires_code = any(
+                isinstance(x, dict) and _safe_first_str(x.get("type")) in ("product_query", "product_interpret", "product_compare")
+                for x in norm
+            )
+            if requires_code and (not user_input_codes) and (not planner_codes) and _planner_skill_indicates_no_code(planner_skill_payload):
+                return {
+                    "multi": False,
+                    "tasks": [],
+                    "final_instruction": "",
+                    "abort": {
+                        "reason": "fund_code_not_found",
+                        "message": "未查询到基金代码，请补充准确的基金名称或直接提供6位基金代码。",
+                    },
+                }
             multi = bool(plan.get("multi")) and len(norm) >= 2
             if not norm:
                 # 回退单任务

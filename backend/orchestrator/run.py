@@ -241,6 +241,13 @@ async def run_chat_turn_async(
     ctx_no_stream = replace(ctx_obj, stream_callback=None)
     plan = await fund_router.coordinator.plan(message, ctx_obj)
     result.trace["plan"] = {"multi": bool(plan.get("multi")), "tasks": plan.get("tasks") or []}
+    if isinstance(plan.get("abort"), dict):
+        abort_obj = plan.get("abort") or {}
+        abort_msg = (abort_obj.get("message") or "").strip() or "未查询到基金代码，请补充准确的基金名称或直接提供6位基金代码。"
+        result.answer_blocks = [abort_msg]
+        result.compliance = {"action": "pass", "reason": str(abort_obj.get("reason") or "planner_abort")}
+        result.trace["plan_abort"] = abort_obj
+        return result
 
     # 从 plan 反推 intent（替代已移除的 intent_slot 抽取）
     try:
@@ -301,19 +308,14 @@ async def run_chat_turn_async(
             tp = (t0.get("type") or "").strip()
             q0 = (t0.get("question") or "").strip() or message
 
+            # 兼容旧规划类型：kb_search/free_answer 统一映射到 other
+            if tp in ("kb_search", "free_answer"):
+                tp = "other"
+
             if tp in ("product_query", "product_interpret", "product_compare", "other"):
                 agent = fund_router.route(tp)  # type: ignore[arg-type]
                 result.trace["intentCategory"] = tp
                 reply_text = await agent.run(q0, ctx_obj)
-            elif tp == "kb_search":
-                # 仅触发知识库（OtherAgent 会根据 ctx.knowledge_base_id 决定是否检索）
-                result.trace["intentCategory"] = "other"
-                reply_text = await fund_router.other.run(q0, ctx_obj)
-            elif tp == "free_answer":
-                # free_answer 不触发知识库检索
-                result.trace["intentCategory"] = "other"
-                ctx_free = replace(ctx_obj, knowledge_base_id=None)
-                reply_text = await fund_router.other.run(q0, ctx_free)
             else:
                 # 兜底：按 other 处理
                 result.trace["intentCategory"] = "other"
@@ -332,16 +334,11 @@ async def run_chat_turn_async(
                     return None
                 await _progress(f"task_{idx+1}_{tp}")
                 try:
-                    if tp == "kb_search":
-                        txt = await fund_router.other.run(qx, ctx_no_stream)
-                        return {"type": "kb_search", "question": qx, "text": txt, "items_count": 0}
-                    elif tp == "free_answer":
-                        txt = await fund_router.other._free_answer(qx, ctx_no_stream)  # type: ignore[attr-defined]
-                        return {"type": "free_answer", "question": qx, "text": txt}
-                    else:
-                        agent = fund_router.route(tp)  # type: ignore[arg-type]
-                        txt = await agent.run(qx, ctx_no_stream)
-                        return {"type": tp, "question": qx, "text": txt}
+                    if tp in ("kb_search", "free_answer"):
+                        tp = "other"
+                    agent = fund_router.route(tp)  # type: ignore[arg-type]
+                    txt = await agent.run(qx, ctx_no_stream)
+                    return {"type": tp, "question": qx, "text": txt}
                 except Exception as e:
                     logger.warning(f"任务 {idx+1} 执行失败: {e}")
                     return {"type": tp, "question": qx, "text": f"[执行失败: {str(e)}]"}

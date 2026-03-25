@@ -13,7 +13,7 @@ DEFAULT_SYSTEM_PROMPT = "你是一个通用助手，请用中文简洁、结构�
 DEFAULT_KB_SYSTEM_PROMPT = (
     "你是知识库问答助手。请严格基于给定的【知识库片段】回答用户问题；"
     "若片段中找不到依据，请明确说明“知识库未检索到相关依据”，并给出建议的补充提问方向。"
-    "回答要简洁、结构化，可用要点列表。"
+    "结尾要加上“以上内容由知识库生成，仅供参考"
 )
 
 
@@ -112,12 +112,31 @@ class OtherAgent(BaseBusinessAgent):
             score = it.get("score")
             context_blocks.append(f"[{i}] {title} (score={score})\n{c}")
         context_text = "\n\n---\n\n".join(context_blocks) if context_blocks else ""
-        sys_prompt = (system_prompt or "").strip() or DEFAULT_KB_SYSTEM_PROMPT
+        sys_prompt = (
+            (system_prompt or "").strip()
+            or DEFAULT_KB_SYSTEM_PROMPT
+        )
+        sys_prompt = (
+            f"{sys_prompt}\n"
+            "补充规则：\n"
+            "1) 你必须覆盖知识库片段中的关键信息点，不得随意删减核心条件、限制、时间、数值、步骤。\n"
+            "2) 若片段信息较多，优先按条目完整展开，宁可更长也不要漏关键点。\n"
+            "3) 不得编造知识库中不存在的事实。\n"
+            "4) 结尾必须原样追加：\n"
+            "【说明】以上内容基于知识库检索结果，由AI总结生成。"
+        )
         user_content = f"用户问题：{question}\n\n【知识库片段】\n{context_text or '（无）'}"
-        return await self._llm_call(
+        ans = await self._llm_call(
             [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_content}],
             ctx,
         )
+        tail = "【说明】以上内容基于知识库检索结果，由AI总结生成。"
+        text = (ans or "").strip()
+        if not text:
+            return ""
+        if tail not in text:
+            text = f"{text}\n\n{tail}"
+        return text
 
     async def _free_answer(
         self, question: str, ctx: AgentRunContext, hint: str | None = None, *, system_prompt: str

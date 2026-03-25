@@ -76,6 +76,7 @@ def _seed_builtin_agents() -> None:
         from agents.fund_agent.product_interpret.agent import DEFAULT_SYSTEM_PROMPT as PI_PROMPT
         from agents.fund_agent.product_compare.agent import DEFAULT_SYSTEM_PROMPT as PC_PROMPT
         from agents.fund_agent.other.agent import DEFAULT_SYSTEM_PROMPT as O_PROMPT
+        from agents.fund_agent_framework import COORDINATOR_DEFAULT_SYSTEM_PROMPT
     except Exception:
         return
 
@@ -105,6 +106,15 @@ def _seed_builtin_agents() -> None:
             "enabled": 1,
             "system_prompt": PC_PROMPT or "",
             "skill_keys": '["product_compare"]',
+            "model_id": None,
+        },
+        {
+            "agent_key": "task_planner",
+            "name": "任务规划",
+            "type": "builtin",
+            "enabled": 1,
+            "system_prompt": COORDINATOR_DEFAULT_SYSTEM_PROMPT or "",
+            "skill_keys": "[]",
             "model_id": None,
         },
         {"agent_key": "other", "name": "其它问答", "type": "builtin", "enabled": 1, "system_prompt": O_PROMPT or "", "skill_keys": "[]", "model_id": None},
