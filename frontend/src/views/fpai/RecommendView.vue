@@ -49,6 +49,18 @@
 import { ref, watch } from 'vue'
 import { postRecommendStream } from '@/api/recommend'
 
+type RecommendedProduct = {
+  id?: string
+  name?: string
+  reason?: string
+  tags?: string
+}
+
+type RecommendParseResult = {
+  disclaimers: string
+  products: RecommendedProduct[]
+}
+
 const customerProfile = ref('')
 const selectedProfileExampleId = ref<string | null>(null)
 const customerProfileExamples = ref<{ id: string; label: string; text: string }[]>([
@@ -89,12 +101,13 @@ watch(selectedProfileExampleId, (n) => applySelectedExample(n))
 const topN = ref(5)
 const loading = ref(false)
 const errorMsg = ref('')
-const result = ref(null)
+const result = ref<RecommendParseResult | null>(null)
 const streamText = ref('')
-let stopStream = null
+// postRecommendStream 返回用于停止流式推送的句柄/回调（此处先显式标注避免 TS 推导成 null 或 any）
+let stopStream: any = null
 
-function parseRecommendText(text) {
-  const disclaimers = '基金有风险，投资需谨慎。以上内容由AI生成，仅供参考，不构成投资建议。'
+function parseRecommendText(text: string): RecommendParseResult {
+  const disclaimers: string = '基金有风险，投资需谨慎。以上内容由AI生成，仅供参考，不构成投资建议。'
   if (!text) return { disclaimers, products: [] }
 
   const lines = String(text)
@@ -103,8 +116,8 @@ function parseRecommendText(text) {
     .filter(Boolean)
 
   const headerRe = /^(\d+)\.\s*(.+?)（(.+?)）\s*$/
-  const products = []
-  let cur = null
+  const products: RecommendedProduct[] = []
+  let cur: RecommendedProduct | null = null
   let collectingReason = false
 
   const flush = () => {
@@ -177,7 +190,7 @@ async function onSubmit() {
         },
       }
     )
-  } catch (e) {
+  } catch (e: any) {
     errorMsg.value = e?.message || '推荐请求失败'
     loading.value = false
   } finally {

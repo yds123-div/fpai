@@ -1,0 +1,13 @@
+.env
+.env.*
+.node_modules/
+node_modules/
+
+dist/
+build/
+
+*.log
+__tests__/
+tests/
+.cache/
+.turbo/

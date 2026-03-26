@@ -21,6 +21,10 @@ httpx>=0.26.0
 # 环境与配置
 python-dotenv>=1.0.0
 
+# 基金数据（AkShare）
+akshare>=1.10.0
+pandas>=1.5.0
+
 # 认证（T027a）：密码哈希使用 bcrypt，避免 passlib 与 bcrypt 版本不兼容
 bcrypt>=4.0.0
 PyJWT>=2.8.0

@@ -1,0 +1,33 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      # 建议生产镜像中设置为非 development
+      APP_ENV: production
+      PORT: 8000
+      HOST: 0.0.0.0
+      LOG_LEVEL: INFO
+    env_file:
+      # 在宿主机准备 backend/.env（包含 MySQL/Redis/MinIO/模型网关等密钥）
+      - ./backend/.env
+    restart: unless-stopped
+    networks:
+      - fpai-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    depends_on:
+      - backend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    networks:
+      - fpai-net
+
+networks:
+  fpai-net:
+    driver: bridge
