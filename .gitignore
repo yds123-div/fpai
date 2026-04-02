@@ -37,13 +37,14 @@ go.work
 *.swo
 *~
 
-# OS
-.DS_Store
-Thumbs.db
-
 # Config files with sensitive data
 .env
 .env.local
+.env.production
+.env.*.local
+
+# Keep the template
+!.env.production.template
 
 # Logs
 *.log
@@ -56,4 +57,3 @@ uploads/
 # Temporary files
 tmp/
 temp/
-

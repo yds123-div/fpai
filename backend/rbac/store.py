@@ -272,7 +272,7 @@ def list_menus() -> list[dict[str, Any]]:
                 return []
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT id, code, name, path, icon, parent_id, sort_order, enabled, updated_at FROM menus ORDER BY sort_order ASC, id ASC"
+                    "SELECT id, code, name, path, icon, parent_id, sort_order, enabled, updated_at FROM menus ORDER BY sort_order ASC"
                 )
                 rows = cur.fetchall() or []
         return [
@@ -450,7 +450,7 @@ def get_role_menus(role_code: str) -> list[str]:
                     FROM role_menus rm
                     JOIN menus m ON m.id = rm.menu_id
                     WHERE rm.role_id=%s
-                    ORDER BY m.sort_order ASC, m.id ASC
+                    ORDER BY m.sort_order ASC
                     """,
                     (rid,),
                 )
@@ -477,7 +477,7 @@ def list_user_menus(user_id: str) -> list[dict[str, Any]]:
                     JOIN role_menus rm ON rm.role_id = ur.role_id
                     JOIN menus m ON m.id = rm.menu_id
                     WHERE ur.user_id=%s AND m.enabled=1
-                    ORDER BY m.sort_order ASC, m.id ASC
+                    ORDER BY m.sort_order ASC
                     """,
                     (uid,),
                 )
