@@ -105,17 +105,23 @@ async def compare(body: CompareBody, request: Request, auth=Depends(get_auth_con
             content=envelope(code=ErrorCode.VALIDATION_ERROR, message=str(e), data=None),
         )
     try:
-        from agents.product_compare.agent import query_product_compare
-
+        # 使用新的 fund_agent_framework 调用产品对比
+        from agents.fund_agent_framework import run_agent_query
+        
+        # 构造产品对比问题
+        product_ids_str = "、".join(ids)
+        question = f"请对比分析以下基金产品：{product_ids_str}"
+        
         result = await asyncio.to_thread(
-            query_product_compare,
-            ids,
+            run_agent_query,
+            question=question,
             permission_context=_permission_context(auth),
         )
-    except Exception:
+    except Exception as e:
+        logger.exception("产品对比失败")
         return JSONResponse(
             status_code=200,
-            content=envelope(code=ErrorCode.INTERNAL_ERROR, message=message_for(ErrorCode.INTERNAL_ERROR), data=None),
+            content=envelope(code=ErrorCode.INTERNAL_ERROR, message=f"产品对比失败: {str(e)}", data=None),
         )
     data = {
         "comparisonTable": result.get("comparison_table") or [],

@@ -45,10 +45,35 @@ def sync_knowledge_bases_once() -> dict[str, Any]:
     同步一次，返回：
     { ok: bool, count: int, message: str }
     """
-    url = (os.getenv("EXTERNAL_KB_LIST_URL") or "").strip()
-    api_key = (os.getenv("EXTERNAL_KB_API_KEY") or "").strip()
+    # 优先从数据库读取配置，回退到环境变量
+    base_url = ""
+    api_key = ""
+    enabled = False
+    
+    try:
+        from config.store import get_config
+        
+        config = get_config("external_kb_config", use_cache=False)
+        if config:
+            base_url = (config.get("base_url") or "").strip()
+            api_key = (config.get("api_key") or "").strip()
+            enabled = bool(config.get("enabled", True))
+    except Exception as e:
+        logger.warning("failed to get external_kb_config from database: %s", e)
+    
+    # 回退到环境变量（向后兼容）
+    if not base_url:
+        url = (os.getenv("EXTERNAL_KB_LIST_URL") or "").strip()
+        api_key = (os.getenv("EXTERNAL_KB_API_KEY") or "").strip()
+    else:
+        # 从 base_url 构造列表接口地址
+        url = f"{base_url.rstrip('/')}/api/v1/knowledge-bases"
+    
     if not url:
-        return {"ok": False, "count": 0, "message": "未配置 EXTERNAL_KB_LIST_URL"}
+        return {"ok": False, "count": 0, "message": "未配置外部知识库地址"}
+    
+    if base_url and not enabled:
+        return {"ok": False, "count": 0, "message": "外部知识库已禁用"}
 
     try:
         import httpx

@@ -90,6 +90,70 @@ def get_config(config_key: str, use_cache: bool = True) -> dict[str, Any] | None
         return None
 
 
+def set_config(config_key: str, config_value: dict[str, Any]) -> bool:
+    """
+    保存配置到 config_strategy 表（INSERT or UPDATE）。
+    
+    Args:
+        config_key: 配置键
+        config_value: 配置值（dict，将序列化为 JSON）
+    
+    Returns:
+        bool: 是否保存成功
+    """
+    if not config_key or not mysql_configured():
+        return False
+    
+    try:
+        value_json = json.dumps(config_value, ensure_ascii=False)
+        
+        with get_connection() as conn:
+            if conn is None:
+                return False
+            
+            with conn.cursor() as cur:
+                # 检查是否已存在
+                cur.execute(
+                    "SELECT version FROM config_strategy WHERE config_key = %s LIMIT 1",
+                    (config_key,)
+                )
+                row = cur.fetchone()
+                
+                if row:
+                    # 更新：版本号 +1
+                    old_version = int(row[0] or 0)
+                    new_version = old_version + 1
+                    cur.execute(
+                        """
+                        UPDATE config_strategy 
+                        SET config_value = %s, version = %s, updated_at = CURRENT_TIMESTAMP
+                        WHERE config_key = %s
+                        """,
+                        (value_json, new_version, config_key)
+                    )
+                else:
+                    # 插入：版本号从 1 开始
+                    cur.execute(
+                        """
+                        INSERT INTO config_strategy (config_key, config_value, version)
+                        VALUES (%s, %s, 1)
+                        """,
+                        (config_key, value_json)
+                    )
+            
+            conn.commit()
+        
+        # 清除缓存
+        clear_config_cache(config_key)
+        
+        logger.info("set_config success", extra={"config_key": config_key})
+        return True
+        
+    except Exception as e:
+        logger.warning("set_config failed: %s", e, extra={"config_key": config_key})
+        return False
+
+
 def get_compliance_policy(use_cache: bool = True) -> dict[str, Any] | None:
     """
     从 MySQL 读取合规策略（config_key = compliance_policy），返回可构造 CompliancePolicy 的 dict。

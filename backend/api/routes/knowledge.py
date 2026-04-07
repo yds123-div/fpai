@@ -64,14 +64,48 @@ def _sse_event(event: str, data: Any) -> str:
     return f"event: {event}\ndata: {payload}\n\n"
 
 
+def _get_external_kb_config() -> tuple[str, str, bool]:
+    """
+    获取外部知识库配置（base_url, api_key, enabled）。
+    
+    优先级：
+    1. 数据库配置（config_strategy 表）
+    2. 环境变量（向后兼容）
+    
+    Returns:
+        tuple: (base_url, api_key, enabled)
+    """
+    try:
+        from config.store import get_config
+        
+        config = get_config("external_kb_config", use_cache=True)
+        if config:
+            base_url = (config.get("base_url") or "").strip()
+            api_key = (config.get("api_key") or "").strip()
+            enabled = bool(config.get("enabled", True))
+            
+            if base_url and enabled:
+                return base_url, api_key, enabled
+    except Exception as e:
+        logger.warning("failed to get external_kb_config from database: %s", e)
+    
+    # 回退到环境变量
+    base_url = (os.getenv("EXTERNAL_KB_BASE_URL") or "").strip()
+    api_key = (os.getenv("EXTERNAL_KB_API_KEY") or "").strip()
+    enabled = bool(base_url)  # 有 base_url 就认为启用
+    
+    return base_url, api_key, enabled
+
+
 async def _external_kb_search(question: str, knowledge_base_id: str, top_k: int) -> list[dict[str, Any]]:
     """
     调用外部知识库检索接口并返回「归一化后的 items」。
     复用 external-search 的核心逻辑，但不走 HTTP 层封装。
     """
-    base_url = (os.getenv("EXTERNAL_KB_BASE_URL") or "").strip()
-    api_key = (os.getenv("EXTERNAL_KB_API_KEY") or "").strip()
-    if not base_url:
+    base_url, api_key, enabled = _get_external_kb_config()
+    
+    if not base_url or not enabled:
+        return []
         return []
     try:
         import httpx
@@ -239,14 +273,14 @@ async def external_search(body: ExternalKnowledgeQuery):
               X-API-Key:   EXTERNAL_KB_API_KEY（如配置）
         体:   { "query": "...", "knowledge_base_ids": ["..."] }
     """
-    base_url = (os.getenv("EXTERNAL_KB_BASE_URL") or "").strip()
-    api_key = (os.getenv("EXTERNAL_KB_API_KEY") or "").strip()
-    if not base_url:
+    base_url, api_key, enabled = _get_external_kb_config()
+    
+    if not base_url or not enabled:
         return JSONResponse(
             status_code=200,
             content=envelope(
                 code=ErrorCode.SERVICE_UNAVAILABLE,
-                message="外部知识库未配置（缺少 EXTERNAL_KB_BASE_URL）",
+                message="外部知识库未配置或已禁用",
                 data=None,
             ),
         )
