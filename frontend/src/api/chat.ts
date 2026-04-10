@@ -19,6 +19,7 @@ function getAuthHeader(): Record<string, string> {
 export interface ChatStreamCallbacks {
   onMessage?: (data: unknown) => void
   onCitation?: (data: unknown) => void
+  onStatus?: (data: { stage?: string; message?: string }) => void
   onDone?: (data: unknown) => void
   onError?: (data: { code?: number; message?: string }) => void
 }
@@ -35,11 +36,11 @@ export async function postChatNonStream(body: Record<string, unknown>): Promise<
 }
 
 /**
- * 流式发送（SSE）：通过 onMessage/onCitation/onDone/onError 回调推送
+ * 流式发送（SSE）：通过 onMessage/onCitation/onStatus/onDone/onError 回调推送
  */
 export function postChatStream(
   body: Record<string, unknown>,
-  { onMessage, onCitation, onDone, onError }: ChatStreamCallbacks = {}
+  { onMessage, onCitation, onStatus, onDone, onError }: ChatStreamCallbacks = {}
 ): () => void {
   const controller = new AbortController()
   const payload = JSON.stringify({ ...body, stream: true })
@@ -85,6 +86,7 @@ export function postChatStream(
               const data = JSON.parse(currentData) as unknown
               if (currentEvent === 'message') onMessage?.(data)
               else if (currentEvent === 'citation') onCitation?.(data)
+              else if (currentEvent === 'status') onStatus?.(data as { stage?: string; message?: string })
               else if (currentEvent === 'done') onDone?.(data)
               else if (currentEvent === 'error') onError?.(data as { code?: number; message?: string })
             } catch {

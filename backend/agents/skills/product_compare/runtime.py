@@ -171,77 +171,192 @@ async def run(question: str, ctx: dict[str, Any]) -> str:
     def _module_ok(data: Any) -> dict[str, Any]:
         return {"ok": True, "data": data}
 
-    # --------- 逐基金聚合（以雪球 XQ 单基金接口为主，辅以 EM 持仓） ---------
-    funds: list[dict[str, Any]] = []
-    for sym in uniq:
+    # --------- 并行获取所有基金数据 ---------
+    import asyncio
+    import time
+    from pkg.metrics import get_metrics_collector
+    
+    metrics_collector = get_metrics_collector()
+    
+    async def _fetch_with_timeout(coro, timeout: float = 5.0, default: Any = None) -> Any:
+        """带超时的异步调用，避免单个 API 阻塞过久"""
+        try:
+            return await asyncio.wait_for(coro, timeout=timeout)
+        except asyncio.TimeoutError:
+            import logging
+            logging.warning(f"操作超时（{timeout}s），返回降级数据")
+            return default
+        except Exception as e:
+            import logging
+            logging.warning(f"操作失败: {e}")
+            return default
+    
+    async def _fetch_single_fund(sym: str) -> dict[str, Any]:
+        """并行获取单只基金的所有数据"""
         fund_obj: dict[str, Any] = {"symbol": sym}
-
-        # 基本信息（雪球）
-        fn_basic_xq = _fn("fund_individual_basic_info_xq")
-        if callable(fn_basic_xq):
+        
+        # 定义各个数据获取任务
+        async def _fetch_basic_info() -> dict[str, Any]:
+            """获取基本信息"""
+            api_name = "fund_individual_basic_info_xq"
+            fn_basic_xq = _fn(api_name)
+            if not callable(fn_basic_xq):
+                return _module_fail(f"akshare 未提供 {api_name}")
+            
+            start_time = time.time()
             try:
-                df = fn_basic_xq(symbol=sym)  # type: ignore[misc]
-                fund_obj["basic_info"] = _module_ok(_df_records(df, limit=200))
+                df = await asyncio.to_thread(fn_basic_xq, symbol=sym)
+                duration = time.time() - start_time
+                metrics_collector.record_api_success(api_name, duration)
+                return _module_ok(_df_records(df, limit=200))
             except Exception as e:
-                fund_obj["basic_info"] = _module_fail(f"fund_individual_basic_info_xq 失败: {e}")
-        else:
-            fund_obj["basic_info"] = _module_fail("akshare 未提供 fund_individual_basic_info_xq")
-
-        # 业绩表现（雪球：业绩概要 + 盈亏概率）
-        perf: dict[str, Any] = {}
-        fn_ach = _fn("fund_individual_achievement_xq")
-        if callable(fn_ach):
+                duration = time.time() - start_time
+                if duration >= 5.0:
+                    metrics_collector.record_api_timeout(api_name)
+                else:
+                    metrics_collector.record_api_error(api_name)
+                return _module_fail(f"{api_name} 失败: {e}")
+        
+        async def _fetch_performance() -> dict[str, Any]:
+            """获取业绩表现（业绩概要 + 盈亏概率）- 并行获取"""
+            
+            async def _get_achievement() -> dict[str, Any]:
+                api_name = "fund_individual_achievement_xq"
+                fn_ach = _fn(api_name)
+                if not callable(fn_ach):
+                    return _module_fail(f"akshare 未提供 {api_name}")
+                
+                start_time = time.time()
+                try:
+                    df = await asyncio.to_thread(fn_ach, symbol=sym)
+                    duration = time.time() - start_time
+                    metrics_collector.record_api_success(api_name, duration)
+                    return _module_ok(_df_records(df, limit=200))
+                except Exception as e:
+                    duration = time.time() - start_time
+                    if duration >= 5.0:
+                        metrics_collector.record_api_timeout(api_name)
+                    else:
+                        metrics_collector.record_api_error(api_name)
+                    return _module_fail(f"{api_name} 失败: {e}")
+            
+            async def _get_profit_probability() -> dict[str, Any]:
+                api_name = "fund_individual_profit_probability_xq"
+                fn_prob = _fn(api_name)
+                if not callable(fn_prob):
+                    return _module_fail(f"akshare 未提供 {api_name}")
+                
+                start_time = time.time()
+                try:
+                    df = await asyncio.to_thread(fn_prob, symbol=sym)
+                    duration = time.time() - start_time
+                    metrics_collector.record_api_success(api_name, duration)
+                    return _module_ok(_df_records(df, limit=20))
+                except Exception as e:
+                    duration = time.time() - start_time
+                    if duration >= 5.0:
+                        metrics_collector.record_api_timeout(api_name)
+                    else:
+                        metrics_collector.record_api_error(api_name)
+                    return _module_fail(f"{api_name} 失败: {e}")
+            
+            # 并行获取两个子模块
+            achievement, profit_probability = await asyncio.gather(
+                _get_achievement(),
+                _get_profit_probability(),
+                return_exceptions=True,
+            )
+            
+            perf: dict[str, Any] = {}
+            perf["achievement"] = achievement if not isinstance(achievement, Exception) else _module_fail(f"获取业绩异常: {achievement}")
+            perf["profit_probability"] = profit_probability if not isinstance(profit_probability, Exception) else _module_fail(f"获取盈亏概率异常: {profit_probability}")
+            
+            return perf
+        
+        async def _fetch_asset_allocation() -> dict[str, Any]:
+            """获取资产配置/持仓"""
+            api_name = "fund_portfolio_hold_em"
+            fn_hold = _fn(api_name)
+            if not callable(fn_hold):
+                return _module_fail(f"akshare 未提供 {api_name}")
+            
+            start_time = time.time()
             try:
-                df = fn_ach(symbol=sym)  # type: ignore[misc]
-                perf["achievement"] = _module_ok(_df_records(df, limit=200))
-            except Exception as e:
-                perf["achievement"] = _module_fail(f"fund_individual_achievement_xq 失败: {e}")
-        else:
-            perf["achievement"] = _module_fail("akshare 未提供 fund_individual_achievement_xq")
-
-        fn_prob = _fn("fund_individual_profit_probability_xq")
-        if callable(fn_prob):
-            try:
-                df = fn_prob(symbol=sym)  # type: ignore[misc]
-                perf["profit_probability"] = _module_ok(_df_records(df, limit=20))
-            except Exception as e:
-                perf["profit_probability"] = _module_fail(f"fund_individual_profit_probability_xq 失败: {e}")
-        else:
-            perf["profit_probability"] = _module_fail("akshare 未提供 fund_individual_profit_probability_xq")
-        fund_obj["performance"] = perf
-
-        # 资产配置/持仓：东方财富 持仓明细（按年度季度）
-        fn_hold = _fn("fund_portfolio_hold_em")
-        if callable(fn_hold):
-            try:
-                # 尝试当年，不行就往前试两年
                 from datetime import datetime
-
                 y = datetime.now().year
                 rows = None
                 last_err = None
+                
+                # 尝试当年，不行就往前试两年
                 for yy in (y, y - 1, y - 2):
                     try:
-                        df = fn_hold(symbol=sym, date=str(yy))  # type: ignore[misc]
+                        df = await asyncio.to_thread(fn_hold, symbol=sym, date=str(yy))
                         rows = _df_records(df, limit=15)
                         if rows:
                             break
                     except Exception as e:
                         last_err = e
                         continue
+                
+                duration = time.time() - start_time
                 if rows:
-                    # 只保留前 10 条，降低 prompt 体积
-                    fund_obj["asset_allocation"] = _module_ok({"top_holdings": rows[:10]})
+                    metrics_collector.record_api_success(api_name, duration)
+                    return _module_ok({"top_holdings": rows[:10]})
                 else:
-                    fund_obj["asset_allocation"] = _module_fail(f"fund_portfolio_hold_em 无可用数据: {last_err}")
+                    if duration >= 5.0:
+                        metrics_collector.record_api_timeout(api_name)
+                    else:
+                        metrics_collector.record_api_error(api_name)
+                    return _module_fail(f"{api_name} 无可用数据: {last_err}")
             except Exception as e:
-                fund_obj["asset_allocation"] = _module_fail(f"fund_portfolio_hold_em 失败: {e}")
+                duration = time.time() - start_time
+                if duration >= 5.0:
+                    metrics_collector.record_api_timeout(api_name)
+                else:
+                    metrics_collector.record_api_error(api_name)
+                return _module_fail(f"{api_name} 失败: {e}")
+        
+        # 并行获取三个模块的数据（每个模块最多5秒超时）
+        module_start = time.time()
+        basic_info, performance, asset_allocation = await asyncio.gather(
+            _fetch_with_timeout(_fetch_basic_info(), timeout=5.0, default=_module_fail("获取基本信息超时")),
+            _fetch_with_timeout(_fetch_performance(), timeout=5.0, default={"achievement": _module_fail("获取业绩超时")}),
+            _fetch_with_timeout(_fetch_asset_allocation(), timeout=5.0, default=_module_fail("获取资产配置超时")),
+            return_exceptions=True,
+        )
+        module_duration = time.time() - module_start
+        
+        # 记录各模块耗时
+        metrics_collector.record_module_duration(f"fetch_basic_info_{sym}", module_duration)
+        metrics_collector.record_module_duration(f"fetch_performance_{sym}", module_duration)
+        metrics_collector.record_module_duration(f"fetch_asset_allocation_{sym}", module_duration)
+        
+        # 处理异常情况
+        if isinstance(basic_info, Exception):
+            fund_obj["basic_info"] = _module_fail(f"获取基本信息异常: {basic_info}")
         else:
-            fund_obj["asset_allocation"] = _module_fail("akshare 未提供 fund_portfolio_hold_em")
-
-        # 风险提示：优先使用雪球的盈亏概率（作为风险分布信息）；其它指标后续可扩展
-        fund_obj["risk"] = perf.get("profit_probability") or _module_fail("未获取到风险相关数据")
-        funds.append(fund_obj)
+            fund_obj["basic_info"] = basic_info
+        
+        if isinstance(performance, Exception):
+            fund_obj["performance"] = {"achievement": _module_fail(f"获取业绩异常: {performance}")}
+        else:
+            fund_obj["performance"] = performance
+        
+        if isinstance(asset_allocation, Exception):
+            fund_obj["asset_allocation"] = _module_fail(f"获取资产配置异常: {asset_allocation}")
+        else:
+            fund_obj["asset_allocation"] = asset_allocation
+        
+        # 风险提示：优先使用雪球的盈亏概率
+        if isinstance(performance, dict):
+            fund_obj["risk"] = performance.get("profit_probability") or _module_fail("未获取到风险相关数据")
+        else:
+            fund_obj["risk"] = _module_fail("未获取到风险相关数据")
+        
+        return fund_obj
+    
+    # 并行获取所有基金的数据
+    funds = await asyncio.gather(*[_fetch_single_fund(sym) for sym in uniq])
 
     # 多基金对比：以业绩概要为主（逐基金已含），这里保留占位
     compare: dict[str, Any] = _module_ok({"mode": "per_fund_achievement", "count": len(uniq)})

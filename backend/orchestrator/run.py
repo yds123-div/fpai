@@ -194,20 +194,30 @@ async def run_chat_turn_async(
     Returns:
         ChatTurnResult: answer_blocks、citations、compliance、trace、suggested_questions 等。
     """
+    # ========== 性能监控：开始计时 ==========
+    import time
+    t_start = time.perf_counter()
+    t_last = t_start
+    
     result = ChatTurnResult(
         answer_id=answer_id or uuid.uuid4().hex,
         trace={"traceId": trace_id or uuid.uuid4().hex},
     )
+    tid = result.trace.get("traceId", "unknown")
+    
+    logger.info(f"[PERF][{tid}] 请求开始 | message_len={len(message or '')}")
+    
     message = (message or "").strip()
     if not message:
         result.answer_blocks = [""]
         result.compliance = {"action": "pass", "reason": "空输入"}
         return result
 
-    async def _progress(stage: str):
+    async def _progress(stage: str, **kwargs):
+        """发送进度事件，支持额外参数"""
         try:
             if callable(progress_callback):
-                out = progress_callback(stage)
+                out = progress_callback(stage, **kwargs)
                 if asyncio.iscoroutine(out):
                     await out
         except Exception:
@@ -218,9 +228,14 @@ async def run_chat_turn_async(
     result.intent = "other"
     result.slots = {}
     result.trace["intent"] = result.intent
+    
+    # ========== 性能监控：初始化完成 ==========
+    t_now = time.perf_counter()
+    logger.info(f"[PERF][{tid}] 初始化完成 | 耗时={t_now - t_last:.3f}s | 累计={t_now - t_start:.3f}s")
+    t_last = t_now
 
     # 1.5) Coordinator（方式1）：规划多子任务 → 依次执行 → 融合输出
-    await _progress("intent_classifying")
+    await _progress("thinking", message="正在理解您的问题...")
     fund_router = FundAgentRouter()
     ctx_obj = AgentRunContext(
         session_id=session_id,
@@ -239,8 +254,27 @@ async def run_chat_turn_async(
     # 多任务执行时避免“子任务输出 + 最终融合输出”重复拼接：
     # 子任务阶段禁用 token 流式，仅在 final_composing 阶段允许流式输出。
     ctx_no_stream = replace(ctx_obj, stream_callback=None)
+    
+    # ========== 性能监控：开始规划 ==========
+    t_now = time.perf_counter()
+    logger.info(f"[PERF][{tid}] 开始任务规划 | 耗时={t_now - t_last:.3f}s | 累计={t_now - t_start:.3f}s")
+    t_last = t_now
+    
     plan = await fund_router.coordinator.plan(message, ctx_obj)
     result.trace["plan"] = {"multi": bool(plan.get("multi")), "tasks": plan.get("tasks") or []}
+    
+    # ========== 性能监控：规划完成 ==========
+    t_now = time.perf_counter()
+    logger.info(f"[PERF][{tid}] 任务规划完成 | 耗时={t_now - t_last:.3f}s | 累计={t_now - t_start:.3f}s | tasks={len(plan.get('tasks') or [])}")
+    t_last = t_now
+    
+    # 发送规划完成进度
+    tasks_count = len(plan.get("tasks") or [])
+    if tasks_count > 1:
+        await _progress("planning_done", message=f"已拆分为 {tasks_count} 个子任务，正在处理...")
+    else:
+        await _progress("planning_done", message="正在查询相关信息...")
+    
     if isinstance(plan.get("abort"), dict):
         abort_obj = plan.get("abort") or {}
         abort_msg = (abort_obj.get("message") or "").strip() or "未查询到基金代码，请补充准确的基金名称或直接提供6位基金代码。"
@@ -269,9 +303,20 @@ async def run_chat_turn_async(
     compliance_input = None
     if use_compliance:
         try:
-            await _progress("compliance_input_checking")
+            await _progress("compliance_checking", message="正在进行合规检查...")
+            
+            # ========== 性能监控：开始输入合规 ==========
+            t_now = time.perf_counter()
+            logger.info(f"[PERF][{tid}] 开始输入合规检查 | 耗时={t_now - t_last:.3f}s | 累计={t_now - t_start:.3f}s")
+            t_last = t_now
+            
             from compliance import check_input
             compliance_input = check_input(message, user_id=user_id)
+            
+            # ========== 性能监控：输入合规完成 ==========
+            t_now = time.perf_counter()
+            logger.info(f"[PERF][{tid}] 输入合规检查完成 | 耗时={t_now - t_last:.3f}s | 累计={t_now - t_start:.3f}s")
+            t_last = t_now
             if not getattr(compliance_input, "is_allowed", lambda: True)():
                 result.answer_blocks = [getattr(compliance_input, "suggestion", None) or "抱歉，该输入未通过合规检查，请修改后重试。"]
                 result.compliance = compliance_input.to_dict() if hasattr(compliance_input, "to_dict") else {"action": "reject"}
@@ -296,6 +341,14 @@ async def run_chat_turn_async(
     reply_text = ""
     try:
         await _progress("agent_running")
+        
+        # ========== 性能监控：开始 Agent 执行 ==========
+        t_now = time.perf_counter()
+        logger.info(f"[PERF][{tid}] 开始 Agent 执行 | 耗时={t_now - t_last:.3f}s | 累计={t_now - t_start:.3f}s")
+        t_last = t_now
+        
+        await _progress("generating", message="正在生成回答...")
+        
         if not isinstance(tasks, list) or not tasks:
             # 回退：单任务
             category = fund_router.classifier.classify(message)
@@ -322,7 +375,7 @@ async def run_chat_turn_async(
                 reply_text = await fund_router.other.run(q0, ctx_obj)
         else:
             # 多任务：并行执行，直接格式化拼接（不调用LLM合并）
-            await _progress("multi_task_running")
+            await _progress("multi_task_running", message=f"正在并行处理 {len(tasks)} 个子任务...")
 
             # 定义单任务执行函数
             async def run_single_task(t: dict, idx: int) -> dict[str, Any] | None:
@@ -332,7 +385,16 @@ async def run_chat_turn_async(
                 qx = (t.get("question") or "").strip()
                 if not tp or not qx:
                     return None
-                await _progress(f"task_{idx+1}_{tp}")
+                
+                # 友好的任务类型名称
+                task_names = {
+                    "product_query": "产品查询",
+                    "product_interpret": "产品解读",
+                    "product_compare": "产品对比",
+                    "other": "信息检索"
+                }
+                task_name = task_names.get(tp, tp)
+                await _progress(f"task_{idx+1}", message=f"正在执行：{task_name}...")
                 try:
                     if tp in ("kb_search", "free_answer"):
                         tp = "other"
@@ -352,7 +414,7 @@ async def run_chat_turn_async(
             # 过滤有效结果，保持顺序
             parts = [r for r in results if r is not None]
 
-            await _progress("final_composing")
+            await _progress("final_composing", message="正在整合结果...")
             # 直接格式化拼接，不调用LLM合并
             final_inst = (plan.get("final_instruction") or "").strip()
             reply_text = _format_multi_task_response(parts, final_inst)
@@ -366,6 +428,12 @@ async def run_chat_turn_async(
             reply_text = await fund_router.other.run(message, ctx_obj)
         except Exception:
             reply_text = ""
+    
+    # ========== 性能监控：Agent 执行完成 ==========
+    t_now = time.perf_counter()
+    logger.info(f"[PERF][{tid}] Agent 执行完成 | 耗时={t_now - t_last:.3f}s | 累计={t_now - t_start:.3f}s | reply_len={len(reply_text)}")
+    t_last = t_now
+    
     if not reply_text:
         reply_text = "当前无法生成回复，请稍后重试或换一种方式提问。"
     else:
@@ -375,9 +443,20 @@ async def run_chat_turn_async(
     compliance_output = None
     if use_compliance:
         try:
-            await _progress("compliance_output_checking")
+            await _progress("compliance_final", message="正在进行最终合规检查...")
+            
+            # ========== 性能监控：开始输出合规 ==========
+            t_now = time.perf_counter()
+            logger.info(f"[PERF][{tid}] 开始输出合规检查 | 耗时={t_now - t_last:.3f}s | 累计={t_now - t_start:.3f}s")
+            t_last = t_now
+            
             from compliance import check_output
             compliance_output = check_output(reply_text, citations=result.citations)
+            
+            # ========== 性能监控：输出合规完成 ==========
+            t_now = time.perf_counter()
+            logger.info(f"[PERF][{tid}] 输出合规检查完成 | 耗时={t_now - t_last:.3f}s | 累计={t_now - t_start:.3f}s")
+            t_last = t_now
             result.compliance = compliance_output.to_dict() if hasattr(compliance_output, "to_dict") else {}
             if not getattr(compliance_output, "is_allowed", lambda: True)():
                 reply_text = getattr(compliance_output, "suggestion", None) or "回复未通过合规审查，建议转人工确认。"
@@ -394,6 +473,11 @@ async def run_chat_turn_async(
 
     # 5) 审计
     if use_audit:
+        # ========== 性能监控：开始审计 ==========
+        t_now = time.perf_counter()
+        logger.info(f"[PERF][{tid}] 开始审计落库 | 耗时={t_now - t_last:.3f}s | 累计={t_now - t_start:.3f}s")
+        t_last = t_now
+        
         _ensure_compliance_and_audit(
             result.answer_id,
             message,
@@ -405,6 +489,28 @@ async def run_chat_turn_async(
             session_id=session_id,
             user_id=user_id,
         )
+        
+        # ========== 性能监控：审计完成 ==========
+        t_now = time.perf_counter()
+        logger.info(f"[PERF][{tid}] 审计落库完成 | 耗时={t_now - t_last:.3f}s | 累计={t_now - t_start:.3f}s")
+        t_last = t_now
+    
+    # ========== 性能监控：请求结束 ==========
+    t_now = time.perf_counter()
+    logger.info(f"[PERF][{tid}] 请求结束 | 总耗时={t_now - t_start:.3f}s")
+    
+    # ========== 打印性能监控摘要 ==========
+    try:
+        from pkg.metrics import get_metrics_collector
+        metrics_collector = get_metrics_collector()
+        metrics_collector.print_summary()
+        
+        # 识别最慢模块
+        slowest = metrics_collector.get_slowest_module()
+        if slowest:
+            logger.warning(f"[PERF][{tid}] ⚠️  性能瓶颈: {slowest}")
+    except Exception as e:
+        logger.warning(f"打印性能摘要失败: {e}")
 
     return result
 

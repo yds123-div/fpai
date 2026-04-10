@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "name": "Python 代码规范检查",
+  "description": "保存 Python 文件时自动检查是否符合后端开发规范（类型提示、docstring、错误处理）",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "backend/**/*.py"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "检查这段 Python 代码是否符合规范：1) 是否有类型提示 2) 方法是否有 docstring 3) 错误处理是否具体（不要 bare except）4) 是否遵循 snake_case 命名。只指出问题，不要重写整个文件。"
+  }
+}

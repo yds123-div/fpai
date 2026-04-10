@@ -440,6 +440,8 @@ const handleMenuClick = ({ key }: { key: string }) => {
 </script>
 
 <style scoped lang="scss">
+@use 'sass:color';
+
 .main-layout {
   display: flex;
   flex-direction: column;
@@ -565,7 +567,7 @@ $header-text-muted: #a0b0c0;
       transition: background 0.2s;
 
       &:hover {
-        background: lighten($header-logo-bg, 6%);
+        background: color.adjust($header-logo-bg, $lightness: 6%);
       }
 
       .chevron {

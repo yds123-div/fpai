@@ -86,6 +86,7 @@ def _extract_json_object(text: str) -> str | None:
     - 先去掉 <think>...</think>
     - 支持 ```json ... ``` 代码块
     - 否则提取第一个顶层 {...}（按括号计数）
+    - 尝试修复常见的 JSON 语法错误
     """
     if not text:
         return None
@@ -106,8 +107,11 @@ def _extract_json_object(text: str) -> str | None:
             m = re.search(r"```(?:json)?\s*([\s\S]*?)```", s, flags=re.IGNORECASE)
             if m:
                 cand = (m.group(1) or "").strip()
-                if cand.startswith("{") and cand.endswith("}"):
-                    return cand
+                if cand.startswith("{"):
+                    # 尝试验证和修复 JSON
+                    fixed = _try_fix_json(cand)
+                    if fixed:
+                        return fixed
         except Exception:
             pass
 
@@ -123,7 +127,71 @@ def _extract_json_object(text: str) -> str | None:
         elif ch == "}":
             depth -= 1
             if depth == 0:
-                return s[start : i + 1]
+                candidate = s[start : i + 1]
+                # 尝试验证和修复 JSON
+                fixed = _try_fix_json(candidate)
+                if fixed:
+                    return fixed
+                return candidate
+    return None
+
+
+def _try_fix_json(json_str: str) -> str | None:
+    """
+    尝试修复常见的 JSON 语法错误：
+    1. 验证 JSON 是否有效
+    2. 如果无效，尝试修复常见问题（如多余的右花括号）
+    """
+    if not json_str:
+        return None
+    
+    # 先尝试直接解析
+    try:
+        json.loads(json_str)
+        return json_str
+    except Exception:
+        pass
+    
+    # 尝试修复：移除末尾多余的 }
+    try:
+        # 统计花括号数量
+        open_count = json_str.count("{")
+        close_count = json_str.count("}")
+        
+        if close_count > open_count:
+            # 从末尾移除多余的 }
+            excess = close_count - open_count
+            temp = json_str
+            for _ in range(excess):
+                # 找到最后一个 }
+                last_brace = temp.rfind("}")
+                if last_brace != -1:
+                    temp = temp[:last_brace] + temp[last_brace + 1:]
+            
+            # 验证修复后的 JSON
+            json.loads(temp)
+            return temp
+    except Exception:
+        pass
+    
+    # 尝试修复：移除末尾多余的 } 之前的内容
+    try:
+        import re
+        # 查找最后一个完整的 JSON 对象
+        # 从第一个 { 开始，找到匹配的 }
+        depth = 0
+        for i, ch in enumerate(json_str):
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = json_str[:i + 1]
+                    json.loads(candidate)
+                    return candidate
+    except Exception:
+        pass
+    
     return None
 
 def _safe_json_loads(s: str) -> Any:

@@ -80,6 +80,7 @@
       <div v-if="loading && !streamingContent" class="message-row assistant">
         <div class="message-bubble">
           <a-spin />
+          <span v-if="progressStatus" style="margin-left: 8px; color: #999;">{{ progressStatus }}</span>
         </div>
       </div>
       <a-alert v-if="errorMsg" type="error" :message="errorMsg" show-icon style="margin-top: 8px" />
@@ -132,6 +133,17 @@ const loading = ref(false)
 const errorMsg = ref('')
 const streamingContent = ref('')
 const streamCitations = ref([])
+const progressStatus = ref('')
+
+// 进度状态中文映射
+const PROGRESS_MESSAGES = {
+  'accepted': '请求已接受',
+  'coordinator_skill_fetching': '正在准备数据...',
+  'coordinator_planning': '正在规划任务...',
+  'skill_fetching': '正在获取相关信息...',
+  'llm_generating': '正在生成回复...',
+}
+
 const selectedModel = ref()
 const modelOptions = ref([])
 const selectedKnowledgeBase = ref()
@@ -242,6 +254,7 @@ function send() {
   loading.value = true
   streamingContent.value = ''
   streamCitations.value = []
+  progressStatus.value = ''
 
   const body = {
     message: text,
@@ -253,6 +266,12 @@ function send() {
   }
 
   abortStream = postChatStream(body, {
+    onStatus(data) {
+      const stage = data?.stage || ''
+      const message = data?.message || ''
+      // 优先使用 message，否则使用映射的中文，最后才用原始 stage
+      progressStatus.value = message || PROGRESS_MESSAGES[stage] || stage
+    },
     onMessage(ev) {
       const t = ev?.text ?? (typeof ev === 'string' ? ev : '')
       if (t) streamingContent.value += t
@@ -262,6 +281,7 @@ function send() {
       streamCitations.value.push(c)
     },
     onDone(data) {
+      progressStatus.value = ''
       if (data?.sessionId) sessionId.value = data.sessionId
       const fullText = streamingContent.value || ''
       streamingContent.value = ''

@@ -241,43 +241,107 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
     - stream=true：返回 text/event-stream，事件 message/citation/done/error。
     - stream=false：返回 JSON envelope，data 含 answerId、answerBlocks、citations、compliance、trace、suggestedQuestions。
     """
-    # 1) 会话
+    # ========== 性能监控：API 入口 ==========
+    import time
+    t_api_start = time.perf_counter()
+    trace_id_temp = (request.headers.get("X-Request-Id") or "").strip() or "unknown"
+    logger.info(f"[PERF][{trace_id_temp}] API /chat 请求到达 | stream={body.stream}")
+    
+    # 1) 会话管理与权限上下文并行处理
     user_id = getattr(auth, "user_id", "") or ""
     session_id = (body.sessionId or "").strip() or None
-    if session_id:
-        if not get_session(session_id):
-            return JSONResponse(
-                status_code=200,
-                content=envelope(code=ErrorCode.SESSION_NOT_FOUND, message=message_for(ErrorCode.SESSION_NOT_FOUND), data=None),
-            )
-    else:
-        session_id = create_session(user_id=user_id)
-
-    # 2) 更新会话上下文（写回）
-    customer_profile_str = _stringify_customer_profile(body.customerProfile)
-    update_session_context(
-        session_id,
-        product_ids=body.productIds if body.productIds is not None else None,
-        customer_profile=customer_profile_str if body.customerProfile is not None else None,
+    
+    # 并行任务1: 会话验证/创建
+    async def _handle_session() -> str | None:
+        """验证现有会话或创建新会话（使用 to_thread 避免阻塞）。
+        
+        Returns:
+            str | None: 会话ID，如果会话不存在则返回 None
+        """
+        nonlocal session_id
+        if session_id:
+            result = await asyncio.to_thread(get_session, session_id)
+            if not result:
+                return None
+        else:
+            session_id = await asyncio.to_thread(create_session, user_id=user_id)
+        return session_id
+    
+    # 并行任务2: 准备权限上下文（不依赖会话）
+    async def _prepare_permission_context() -> dict[str, Any]:
+        """准备权限上下文字典。
+        
+        Returns:
+            dict[str, Any]: 包含 role 和 productPoolIds 的权限上下文
+        """
+        return {
+            "role": getattr(auth, "role", None),
+            "productPoolIds": getattr(auth, "product_pool_ids", None) or [],
+        }
+    
+    # 并行任务3: 准备 traceId（不依赖会话）
+    async def _prepare_trace_id() -> str | None:
+        """从请求头提取 traceId。
+        
+        Returns:
+            str | None: traceId 或 None
+        """
+        return (request.headers.get("X-Request-Id") or "").strip() or None
+    
+    # 并行任务4: 准备消息文本（不依赖会话）
+    async def _prepare_message() -> str:
+        """提取并清理用户消息文本。
+        
+        Returns:
+            str: 清理后的消息文本
+        """
+        return (body.message or "").strip()
+    
+    # 并行执行
+    t_now = time.perf_counter()
+    logger.info(f"[PERF][{trace_id_temp}] 开始并行初始化 | 耗时={t_now - t_api_start:.3f}s")
+    
+    session_result, permission_context, trace_id, msg = await asyncio.gather(
+        _handle_session(),
+        _prepare_permission_context(),
+        _prepare_trace_id(),
+        _prepare_message(),
     )
+    
+    t_now = time.perf_counter()
+    logger.info(f"[PERF][{trace_id_temp}] 并行初始化完成 | 累计={t_now - t_api_start:.3f}s")
+    
+    # 检查会话是否有效
+    if session_result is None:
+        return JSONResponse(
+            status_code=200,
+            content=envelope(code=ErrorCode.SESSION_NOT_FOUND, message=message_for(ErrorCode.SESSION_NOT_FOUND), data=None),
+        )
+
+    # 2) 更新会话上下文（写回）+ 落用户消息 并行
+    t_now = time.perf_counter()
+    logger.info(f"[PERF][{trace_id_temp}] 开始会话上下文更新 | 耗时={t_now - t_api_start:.3f}s")
+    
+    customer_profile_str = _stringify_customer_profile(body.customerProfile)
+    
+    # 并行任务: 更新会话上下文 + 落用户消息
+    await asyncio.gather(
+        asyncio.to_thread(
+            update_session_context,
+            session_id,
+            product_ids=body.productIds if body.productIds is not None else None,
+            customer_profile=customer_profile_str if body.customerProfile is not None else None,
+        ),
+        asyncio.to_thread(append_message, session_id, "user", msg[:2000]),
+    )
+    
+    t_now = time.perf_counter()
+    logger.info(f"[PERF][{trace_id_temp}] 会话上下文更新完成 | 累计={t_now - t_api_start:.3f}s")
 
     # 3) 供编排使用的会话上下文（合并 request + session）
     ctx = get_session_context_for_orchestration(session_id)
     product_ids = body.productIds if body.productIds is not None else ctx.get("product_ids")
     customer_profile = customer_profile_str if body.customerProfile is not None else ctx.get("customer_profile")
-
-    # 4) 权限上下文（传给编排/智能体/检索）
-    permission_context = {
-        "role": getattr(auth, "role", None),
-        "productPoolIds": getattr(auth, "product_pool_ids", None) or [],
-    }
-
-    # 5) traceId（来自 X-Request-Id 中间件回传同值）
-    trace_id = (request.headers.get("X-Request-Id") or "").strip() or None
-
-    # 6) 落用户消息（摘要）
-    msg = (body.message or "").strip()
-    append_message(session_id, "user", msg[:2000])
 
     async def _run_once() -> dict[str, Any]:
         # 若传入 model_id，则从 MySQL 读取模型配置（base_url/api_key/model_name），用于本轮覆盖
@@ -328,7 +392,15 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
     # 7) 非流式
     if body.stream is False:
         try:
+            t_now = time.perf_counter()
+            logger.info(f"[PERF][{trace_id_temp}] 开始编排执行 | 累计={t_now - t_api_start:.3f}s")
+            
             data = await _run_once()
+            
+            t_now = time.perf_counter()
+            logger.info(f"[PERF][{trace_id_temp}] 编排执行完成 | 累计={t_now - t_api_start:.3f}s")
+            logger.info(f"[PERF][{trace_id_temp}] API /chat 响应返回 | 总耗时={t_now - t_api_start:.3f}s")
+            
             return JSONResponse(status_code=200, content=envelope(code=ErrorCode.OK, message="ok", data=data))
         except Exception:
             return JSONResponse(
@@ -388,8 +460,10 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
                 async def _emit(ev: str, payload: Any):
                     await q.put((ev, payload))
 
-                async def _progress(stage: str):
-                    await _emit("status", {"stage": stage})
+                async def _progress(stage: str, **kwargs):
+                    """接收编排器的进度事件"""
+                    message = kwargs.get("message", "")
+                    await _emit("status", {"stage": stage, "message": message})
 
                 async def _stream_token(t: str):
                     # 仅推送增量 token

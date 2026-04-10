@@ -186,7 +186,7 @@ def _seed_builtin_agents() -> None:
                         )
             conn.commit()
     except Exception as e:
-        logger.warning("seed builtin agents failed: %s", e)
+        logger.warning("seed builtin agents failed: %s", str(e))
 
 
 # ---- 轻量缓存：避免每次 run 都查库（仅用于读取） ----
