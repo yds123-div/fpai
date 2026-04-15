@@ -10,7 +10,6 @@ from pkg.logger import get_logger
 
 logger = get_logger(__name__)
 
-
 @dataclass
 class AgentRunContext:
     """运行上下文（后续可扩展：用户、权限、会话、产品池等）。"""
@@ -35,6 +34,9 @@ class AgentRunContext:
 
     # 是否允许并展示模型推理过程（输出 <think>...</think>）
     show_thinking: bool = False
+
+    # 业务结构化输出（例如 fund_analysis），由业务 agent 填充，供 API 层透传到 structuredOutputs
+    structured_outputs: list[dict[str, Any]] | None = None
 
 
 class BaseBusinessAgent:
@@ -178,7 +180,7 @@ async def run_configured_skills(
             await _emit_progress(ctx, "skill_fetching")
             s = await fn(question, {"session_id": ctx.session_id, "user_id": ctx.user_id})
             return {"skill": kk, "payload": _safe_json_loads(s)}
-        except Exception:
+        except Exception as e:
             continue
     return None
 

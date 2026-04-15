@@ -26,18 +26,10 @@ class InfoCard(TypedDict):
 # 分析模块（Section）
 # ---------------------------------------------------------------------------
 
-class TableCellMeta(TypedDict):
-    classes: NotRequired[dict[str, str]]
-    tooltips: NotRequired[dict[str, str]]
-
-
 class TableDef(TypedDict):
     headers: list[str]
     rows: list[dict[str, Any]]
     highlight: NotRequired[list[str]]
-    # Optional per-cell rendering metadata (frontend TableSection will use it if present)
-    # key format: f"{rowIndex}|{header}"
-    cell: NotRequired[TableCellMeta]
 
 
 class TableSection(TypedDict):

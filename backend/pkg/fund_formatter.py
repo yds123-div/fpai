@@ -152,21 +152,6 @@ def _float_or(val: Any, default: float = 0.0) -> float:
         return default
 
 
-def _float_or_none(val: Any) -> float | None:
-    if val is None:
-        return None
-    s = str(val).strip()
-    if not s or s.lower() == "nan":
-        return None
-    try:
-        return float(s)
-    except Exception:
-        try:
-            return float(s.replace("%", "").strip())
-        except Exception:
-            return None
-
-
 # ---------------------------------------------------------------------------
 # 提取 payload + funds
 # ---------------------------------------------------------------------------
@@ -346,9 +331,8 @@ def format_performance_table(funds: list[dict[str, Any]]) -> TableSection | None
     symbols = [str(f.get("symbol") or "") for f in funds]
     headers = ["指标"] + symbols
 
-    # 收集每只基金的业绩指标（achievement + analysis 风险指标补充）
+    # 收集每只基金的业绩指标
     perf_data: dict[str, dict[str, str]] = {}
-    missing: list[dict[str, Any]] = []
     for fund in funds:
         sym = str(fund.get("symbol") or "")
         # 支持 AkShare 和 Skill 两种格式
@@ -358,26 +342,8 @@ def format_performance_table(funds: list[dict[str, Any]]) -> TableSection | None
             if isinstance(perf, dict):
                 ach_records = _module_data(perf.get("achievement"))
         if not ach_records:
-            missing.append({
-                "symbol": sym,
-                "has_achievement_module": isinstance(fund.get("achievement"), dict),
-                "achievement_ok": (fund.get("achievement") or {}).get("ok") if isinstance(fund.get("achievement"), dict) else None,
-                "has_performance_module": isinstance(fund.get("performance"), dict),
-                "performance_achievement_ok": ((fund.get("performance") or {}).get("achievement") or {}).get("ok")
-                if isinstance(fund.get("performance"), dict) and isinstance((fund.get("performance") or {}).get("achievement"), dict)
-                else None,
-            })
             continue
         kv = _kv_to_dict(ach_records)
-        # 补充：analysis 宽表里的“近1年”风险指标，写入固定展示行
-        chosen_period, analysis_risk = _extract_analysis_risk_metrics(fund)
-        label = chosen_period or "近1年"
-        if analysis_risk.get("年化波动率"):
-            kv.setdefault(f"{label}年化波动率", analysis_risk["年化波动率"])
-        if analysis_risk.get("夏普比率"):
-            kv.setdefault(f"{label}年化夏普比率", analysis_risk["夏普比率"])
-        if analysis_risk.get("最大回撤"):
-            kv.setdefault(f"{label}最大回撤", analysis_risk["最大回撤"])
         perf_data[sym] = kv
 
     if not perf_data:
@@ -387,9 +353,6 @@ def format_performance_table(funds: list[dict[str, Any]]) -> TableSection | None
     priority = [
         "近1月", "近3月", "近6月", "近1年", "近2年", "近3年", "近5年",
         "今年来", "成立来",
-        "近1年年化夏普比率", "近1年年化波动率", "近1年最大回撤",
-        "近3年年化夏普比率", "近3年年化波动率", "近3年最大回撤",
-        "成立以来年化夏普比率", "成立以来年化波动率", "成立以来最大回撤",
         "夏普比率", "最大回撤", "波动率", "索提诺比率", "卡玛比率",
         "年化收益", "年化波动", "信息比率", "跟踪误差",
         "阿尔法", "贝塔", "R平方"
@@ -414,27 +377,6 @@ def format_performance_table(funds: list[dict[str, Any]]) -> TableSection | None
         return None
 
     rows: list[dict[str, Any]] = []
-    cell_classes: dict[str, str] = {}
-    cell_tooltips: dict[str, str] = {}
-
-    def _parse_num(v: str) -> float | None:
-        if v is None:
-            return None
-        s = str(v).strip()
-        if not s or s in {"-", "—"}:
-            return None
-        s = s.replace("%", "").strip()
-        try:
-            return float(s)
-        except Exception:
-            return None
-
-    def _metric_prefers_high(metric: str) -> bool:
-        return ("夏普" in metric) or ("信息比率" in metric) or ("索提诺" in metric) or ("卡玛" in metric) or ("阿尔法" in metric)
-
-    def _metric_prefers_low(metric: str) -> bool:
-        return ("波动" in metric) or ("回撤" in metric) or ("跟踪误差" in metric)
-
     # 增加显示指标数量到25个
     for metric in all_metrics[:25]:
         row: dict[str, Any] = {"指标": metric}
@@ -442,40 +384,11 @@ def format_performance_table(funds: list[dict[str, Any]]) -> TableSection | None
             row[sym] = perf_data.get(sym, {}).get(metric, "-")
         rows.append(row)
 
-        # 单元格级别高亮：同一指标行内做最优/最劣标注
-        if _metric_prefers_high(metric) or _metric_prefers_low(metric):
-            vals: list[tuple[str, float]] = []
-            for sym in symbols:
-                n = _parse_num(str(row.get(sym, "")))
-                if n is None:
-                    continue
-                # 最大回撤通常为负或已是绝对值，这里统一取绝对值参与比较（越小越好）
-                if "回撤" in metric:
-                    n = abs(n)
-                vals.append((sym, n))
-            if len(vals) >= 2:
-                best_sym = None
-                worst_sym = None
-                if _metric_prefers_high(metric):
-                    best_sym = max(vals, key=lambda x: x[1])[0]
-                    worst_sym = min(vals, key=lambda x: x[1])[0]
-                else:
-                    best_sym = min(vals, key=lambda x: x[1])[0]
-                    worst_sym = max(vals, key=lambda x: x[1])[0]
-                ridx = len(rows) - 1
-                if best_sym:
-                    cell_classes[f"{ridx}|{best_sym}"] = "cell-good"
-                    cell_tooltips[f"{ridx}|{best_sym}"] = "该指标在对比基金中更优"
-                if worst_sym:
-                    cell_classes[f"{ridx}|{worst_sym}"] = "cell-bad"
-                    cell_tooltips[f"{ridx}|{worst_sym}"] = "该指标在对比基金中偏弱"
-
     return {
         "id": "performance_compare",
         "title": "业绩对比",
         "type": "table",
-        "description": "说明：近1年年化波动率/年化夏普比率/最大回撤优先来自风险分析数据源；缺失显示为 - 。同一行内绿色为更优、红色为偏弱。",
-        "table": {"headers": headers, "rows": rows, "highlight": symbols, "cell": {"classes": cell_classes, "tooltips": cell_tooltips}},
+        "table": {"headers": headers, "rows": rows, "highlight": symbols},
     }
 
 
@@ -619,8 +532,32 @@ def format_standard_14_fields_table(fund_obj: dict[str, Any]) -> TableSection | 
     records = basic_records + detail_records
     kv = _kv_to_dict(records)
 
+    # 若基础取数模块超时/失败，仍返回“空骨架”表格，避免前端误判为“没有基金/没有详细信息”
+    # 至少保证基金代码可见，其他字段用 "-" 占位，并提示用户稍后重试。
     if not kv:
-        return None
+        rows = [{"字段": "基金代码", "内容": symbol}]
+        for field_name in [
+            "基金名称",
+            "成立时间",
+            "最新规模",
+            "基金公司",
+            "基金经理",
+            "托管银行",
+            "基金类型",
+            "基金评级",
+            "投资策略",
+            "投资目标",
+            "费率",
+            "业绩比较基准",
+        ]:
+            rows.append({"字段": field_name, "内容": "-"})
+        rows.append({"字段": "提示", "内容": "基金详细信息取数超时或失败，已展示可用字段；建议稍后重试。"})
+        return {
+            "id": f"standard_14_fields_{symbol}",
+            "title": "基金详细信息",
+            "type": "table",
+            "table": {"headers": ["字段", "内容"], "rows": rows},
+        }
     
     def _compose_fee_summary(kv_data: dict[str, str]) -> str:
         """将费率信息合成为固定句式：费率方面：...；...。"""
@@ -1307,7 +1244,7 @@ def format_nav_chart(funds: list[dict[str, Any]]) -> ChartConfig | None:
 
     series_list: list[dict[str, Any]] = []
     available_keys: list[str] = []
-    fund_kv_list: list[tuple[str, dict[str, str]]] = []
+    fund_kv_list: list[tuple[str, dict[str, str], list[dict[str, Any]]]] = []
 
     for fund in funds:
         sym = str(fund.get("symbol") or "")
@@ -1319,20 +1256,20 @@ def format_nav_chart(funds: list[dict[str, Any]]) -> ChartConfig | None:
         if not ach_records:
             continue
         kv = _kv_to_dict(ach_records)
-        fund_kv_list.append((sym, kv))
+        fund_kv_list.append((sym, kv, ach_records))
 
     if not fund_kv_list:
         return None
 
     # 确定可用的时间轴
     for tk in time_keys:
-        if any(tk in kv for _, kv in fund_kv_list):
+        if any(tk in kv for _, kv, _ in fund_kv_list):
             available_keys.append(tk)
 
     if len(available_keys) < 2:
         return None
 
-    for idx, (sym, kv) in enumerate(fund_kv_list):
+    for idx, (sym, kv, _) in enumerate(fund_kv_list):
         data_points = [_float_or(kv.get(tk)) for tk in available_keys]
         color = DEFAULT_COLORS[idx % len(DEFAULT_COLORS)]
         series_list.append({"name": sym, "data": data_points, "color": color})
@@ -1342,6 +1279,69 @@ def format_nav_chart(funds: list[dict[str, Any]]) -> ChartConfig | None:
         "title": "各期收益对比",
         "type": "line",
         "data": {"xAxis": available_keys, "series": series_list},
+    }
+
+
+def format_volatility_trend_chart(funds: list[dict[str, Any]]) -> ChartConfig | None:
+    """生成年化波动率趋势折线图（按周期）。"""
+    if not funds:
+        return None
+
+    def _period_order(label: str) -> tuple[int, int]:
+        l = (label or "").strip()
+        order = {"近1月": 1, "近3月": 2, "近6月": 3, "近1年": 4, "近2年": 5, "近3年": 6, "近5年": 7, "成立以来": 8}
+        if l in order:
+            return (0, order[l])
+        if l.isdigit() and len(l) == 4:
+            return (1, -int(l))
+        return (2, 0)
+
+    per_fund: list[tuple[str, dict[str, float]]] = []
+    all_periods: set[str] = set()
+    for fund in funds:
+        sym = str(fund.get("symbol") or "")
+        analysis_records = _module_data(fund.get("analysis"))
+        if not analysis_records:
+            continue
+        pmap: dict[str, float] = {}
+        for r in analysis_records:
+            if not isinstance(r, dict):
+                continue
+            p = str(r.get("周期") or "").strip()
+            if not p:
+                continue
+            raw = r.get("年化波动率") or r.get("波动率")
+            try:
+                v = float(str(raw).replace("%", "").strip())
+            except (TypeError, ValueError):
+                continue
+            pmap[p] = v
+        if pmap:
+            per_fund.append((sym, pmap))
+            all_periods.update(pmap.keys())
+
+    if not per_fund:
+        return None
+    x_axis = sorted([p for p in all_periods if p], key=_period_order)
+    if len(x_axis) < 2:
+        return None
+
+    series_list: list[dict[str, Any]] = []
+    for idx, (sym, pmap) in enumerate(per_fund):
+        data = [_float_or(pmap.get(p)) for p in x_axis]
+        if all(v == 0 for v in data):
+            continue
+        color = DEFAULT_COLORS[idx % len(DEFAULT_COLORS)]
+        series_list.append({"name": sym, "data": data, "color": color})
+
+    if not series_list:
+        return None
+    return {
+        "id": "volatility_trend",
+        "title": "年化波动率趋势",
+        "type": "line",
+        "data": {"xAxis": x_axis, "series": series_list},
+        "options": {"showLegend": True, "showGrid": True, "yAxisLabel": "波动率(%)"},
     }
 
 
@@ -1610,179 +1610,6 @@ def _achievement_val_pct(val: Any) -> str:
         return s
 
 
-def _normalize_pct_text(val: Any) -> str:
-    """将风险指标中的百分比类数值统一规范为带 % 的文本。"""
-    if val is None:
-        return ""
-    if isinstance(val, float) and math.isnan(val):
-        return ""
-    s = str(val).strip()
-    if not s or s.lower() == "nan":
-        return ""
-    if s.endswith("%"):
-        return s
-    try:
-        return f"{float(s):.2f}%"
-    except ValueError:
-        return s
-
-
-def _extract_analysis_risk_metrics(fund: dict[str, Any]) -> tuple[str, dict[str, str]]:
-    """
-    从 analysis 宽表中提取风险指标。
-
-    AkShare `fund_individual_analysis_xq` 常见结构为宽表：
-    周期 / 年化波动率 / 年化夏普比率 / 最大回撤 ...
-    这里优先取“近1年”，其次取第一条有效记录。
-    """
-    rows = _module_data(fund.get("analysis"))
-    if not rows:
-        return "", {}
-    dict_rows = [r for r in rows if isinstance(r, dict)]
-    if not dict_rows:
-        return "", {}
-    chosen = next((r for r in dict_rows if str(r.get("周期") or "").strip() == "近1年"), dict_rows[0])
-    chosen_period = str(chosen.get("周期") or "").strip()
-    volatility = _normalize_pct_text(chosen.get("年化波动率") or chosen.get("波动率") or chosen.get("年化波动"))
-    sharpe = str(chosen.get("年化夏普比率") or chosen.get("夏普比率") or chosen.get("夏普") or "").strip()
-    drawdown = _normalize_pct_text(chosen.get("最大回撤"))
-    out: dict[str, str] = {}
-    if volatility:
-        out["年化波动率"] = volatility
-    if sharpe:
-        out["夏普比率"] = sharpe
-    if drawdown:
-        out["最大回撤"] = drawdown
-    return chosen_period, out
-
-
-def _extract_analysis_risk_matrix(fund: dict[str, Any]) -> list[dict[str, Any]]:
-    """
-    从 analysis 宽表中提取“按周期”的风险指标矩阵。
-    返回行列表：{"周期":..., "年化波动率": "...%", "年化夏普比率": "...", "最大回撤": "...%"}。
-    """
-    rows = _module_data(fund.get("analysis"))
-    if not rows:
-        return []
-    dict_rows = [r for r in rows if isinstance(r, dict)]
-    if not dict_rows:
-        return []
-    out: list[dict[str, Any]] = []
-    for r in dict_rows:
-        period = str(r.get("周期") or "").strip()
-        if not period:
-            continue
-        out.append({
-            "周期": period,
-            "年化波动率": _normalize_pct_text(r.get("年化波动率") or r.get("波动率") or r.get("年化波动")),
-            "年化夏普比率": str(r.get("年化夏普比率") or r.get("夏普比率") or r.get("夏普") or "").strip(),
-            "最大回撤": _normalize_pct_text(r.get("最大回撤")),
-        })
-    return out
-
-
-def format_risk_metrics_matrix_section(fund: dict[str, Any]) -> TableSection | None:
-    """单基金：风险指标矩阵（按周期）。给基金经理使用，口径清晰、可复制。"""
-    sym = str(fund.get("symbol") or "")
-    matrix = _extract_analysis_risk_matrix(fund)
-    if not matrix:
-        return None
-
-    # 常用展示顺序：近1年/近3年/成立以来，其他周期放后面（若存在）
-    order = ["近6月", "近1年", "近2年", "近3年", "近5年", "成立以来"]
-    rank = {p: i for i, p in enumerate(order)}
-    matrix.sort(key=lambda r: rank.get(str(r.get("周期") or ""), 999))
-
-    headers = ["周期", "年化波动率（该周期）", "年化夏普比率（该周期）", "最大回撤（该周期）", "备注"]
-    rows: list[dict[str, Any]] = []
-    cell_classes: dict[str, str] = {}
-    cell_tooltips: dict[str, str] = {}
-
-    def set_cell(i: int, h: str, cls: str | None = None, tip: str | None = None) -> None:
-        key = f"{i}|{h}"
-        if cls:
-            cell_classes[key] = cls
-        if tip:
-            cell_tooltips[key] = tip
-
-    for i, r in enumerate(matrix):
-        period = str(r.get("周期") or "")
-        vol = str(r.get("年化波动率") or "").strip()
-        sharpe = str(r.get("年化夏普比率") or "").strip()
-        dd = str(r.get("最大回撤") or "").strip()
-
-        note_parts: list[str] = []
-        if not vol:
-            vol = "—"
-            note_parts.append("年化波动率缺失（数据源未提供）")
-            set_cell(i, "年化波动率（该周期）", "cell-muted")
-        if not sharpe:
-            sharpe = "—"
-            note_parts.append("年化夏普比率缺失（数据源未提供）")
-            set_cell(i, "年化夏普比率（该周期）", "cell-muted")
-        if not dd:
-            dd = "—"
-            note_parts.append("最大回撤缺失（数据源未提供）")
-            set_cell(i, "最大回撤（该周期）", "cell-muted")
-
-        note = "；".join(note_parts) if note_parts else ""
-        rows.append({
-            "周期": period,
-            "年化波动率（该周期）": vol,
-            "年化夏普比率（该周期）": sharpe,
-            "最大回撤（该周期）": dd,
-            "备注": note,
-        })
-
-        set_cell(i, "年化波动率（该周期）", tip=f"年化波动率：收益率波动程度（越低越稳）。口径=该行周期（{period}）。")
-        set_cell(i, "年化夏普比率（该周期）", tip=f"年化夏普比率：单位风险收益（越高越好）。口径=该行周期（{period}）。")
-        set_cell(i, "最大回撤（该周期）", tip=f"最大回撤：峰谷最大跌幅（越小越好）。口径=该行周期（{period}）。")
-
-    return {
-        "id": f"risk_matrix_{sym}",
-        "title": "风险指标矩阵（按周期）",
-        "type": "table",
-        "description": "口径说明：按“周期”统计的年化波动率/年化夏普比率/最大回撤。用于评估风险-收益质量与稳定性。",
-        "table": {
-            "headers": headers,
-            "rows": rows,
-            "cell": {"classes": cell_classes, "tooltips": cell_tooltips},
-        },
-    }
-
-
-def format_volatility_trend_chart(fund: dict[str, Any]) -> ChartConfig | None:
-    """单基金：年化波动率随周期变化趋势（折线）。"""
-    sym = str(fund.get("symbol") or "")
-    matrix = _extract_analysis_risk_matrix(fund)
-    if not matrix:
-        return None
-    order = ["近6月", "近1年", "近2年", "近3年", "近5年", "成立以来"]
-    rank = {p: i for i, p in enumerate(order)}
-    matrix.sort(key=lambda r: rank.get(str(r.get("周期") or ""), 999))
-
-    x: list[str] = []
-    y: list[float | None] = []
-    for r in matrix:
-        period = str(r.get("周期") or "").strip()
-        vol_s = str(r.get("年化波动率") or "").strip().replace("%", "")
-        if not period:
-            continue
-        x.append(period)
-        y.append(_float_or_none(vol_s))
-
-    if len(x) < 2:
-        return None
-
-    return {
-        "id": f"vol_trend_{sym}",
-        "title": "年化波动率趋势（按周期）",
-        "type": "line",
-        "description": "用于观察不同周期下的波动水平变化（数值越低通常越稳健）。",
-        "data": {"xAxis": x, "series": [{"name": sym or "本基金", "data": y, "color": DEFAULT_COLORS[0]}]},
-    }
-
-
 def _build_structured_achievement_block(fund: dict[str, Any]) -> str:
     """从 achievement 模块生成结构化业绩行，供前端 PerformanceSummary 稳定解析（含历年最大回撤）。"""
     rows = _module_data(fund.get("achievement"))
@@ -1792,6 +1619,10 @@ def _build_structured_achievement_block(fund: dict[str, Any]) -> str:
     if not first:
         return ""
     lines: list[str] = []
+    ach_periods: list[str] = []
+    analysis_rows = _module_data(fund.get("analysis")) or []
+    analysis_kv = _kv_to_dict(analysis_rows) if analysis_rows else {}
+    risk_rows_preview: list[dict[str, str]] = []
 
     # AkShare fund_individual_achievement_xq：宽表（周期 / 本产品区间收益 / 周期收益同类排名 / 本产品最大回撒）
     if "周期" in first or "本产品区间收益" in first:
@@ -1801,6 +1632,7 @@ def _build_structured_achievement_block(fund: dict[str, Any]) -> str:
             period = str(r.get("周期") or "").strip()
             if not period:
                 continue
+            ach_periods.append(period)
             ret = _achievement_val_pct(r.get("本产品区间收益"))
             rank = str(r.get("周期收益同类排名") or "").strip()
             dd = _achievement_val_pct(
@@ -1836,6 +1668,19 @@ def _build_structured_achievement_block(fund: dict[str, Any]) -> str:
                 if rank:
                     parts.append(f"同类排名：{rank}")
                 lines.append("，".join(parts))
+        for ar in analysis_rows:
+            if not isinstance(ar, dict):
+                continue
+            p = str(ar.get("周期") or "").strip()
+            sharpe = str(ar.get("年化夏普比率") or ar.get("夏普比率") or ar.get("夏普") or "").strip()
+            vol = str(ar.get("年化波动率") or ar.get("波动率") or "").strip()
+            vol_fmt = _achievement_val_pct(vol) if vol else ""
+            if p and sharpe:
+                lines.append(f"{p}夏普比率：{sharpe}")
+            if p and vol_fmt:
+                lines.append(f"{p}年化波动率：{vol_fmt}")
+            if p or sharpe or vol:
+                risk_rows_preview.append({"period": p, "sharpe": sharpe, "volatility": vol_fmt or vol})
     else:
         kv = _kv_to_dict(rows)
         ordered = [
@@ -1862,18 +1707,8 @@ def _build_structured_achievement_block(fund: dict[str, Any]) -> str:
                 lines.append(f"{k}：{v}")
             else:
                 lines.append(f"{k}收益率：{v}")
-
     if not lines:
         return ""
-    chosen_period, analysis_metrics = _extract_analysis_risk_metrics(fund)
-    existing_text = "\n".join(lines)
-    prefix = f"{chosen_period}" if chosen_period else ""
-    if analysis_metrics.get("夏普比率") and "夏普比率" not in existing_text and "夏普：" not in existing_text:
-        lines.append(f"{prefix}年化夏普比率：{analysis_metrics['夏普比率']}" if prefix else f"年化夏普比率：{analysis_metrics['夏普比率']}")
-    if analysis_metrics.get("年化波动率") and "年化波动率" not in existing_text and "波动率" not in existing_text:
-        lines.append(f"{prefix}年化波动率：{analysis_metrics['年化波动率']}" if prefix else f"年化波动率：{analysis_metrics['年化波动率']}")
-    if analysis_metrics.get("最大回撤") and "最大回撤" not in existing_text:
-        lines.append(f"{prefix}最大回撤：{analysis_metrics['最大回撤']}" if prefix else f"最大回撤：{analysis_metrics['最大回撤']}")
     return "【结构化业绩数据】\n" + "\n".join(lines) + "\n"
 
 
@@ -1926,16 +1761,6 @@ def build_single_output(
         if standard_table:
             table_sections.append(standard_table)
 
-        # 风险指标矩阵（按周期）
-        risk_matrix = format_risk_metrics_matrix_section(fund)
-        if risk_matrix:
-            table_sections.append(risk_matrix)
-
-        # 可选增强：年化波动率趋势
-        vol_trend = format_volatility_trend_chart(fund)
-        if vol_trend:
-            charts.append(vol_trend)
-
     # 单基金也可展示收益走势
     nav = format_nav_chart(funds)
     if nav:
@@ -1945,6 +1770,56 @@ def build_single_output(
     radar = format_style_radar(funds)
     if radar:
         charts.append(radar)
+
+    vol_trend = format_volatility_trend_chart(funds)
+    if vol_trend:
+        charts.append(vol_trend)
+
+    # 日频净值走势（东方财富/AkShare，与雪球业绩表互补）
+    daily_nav_added = 0
+    for fund in funds:
+        ndp = fund.get("nav_data_periods")
+        if isinstance(ndp, dict):
+            range_data: dict[str, Any] = {}
+            period_options: list[str] = []
+            sym = str(fund.get("symbol") or "")
+            for label in ["近1月", "近3月", "近1年", "成立以来"]:
+                one = ndp.get(label)
+                if not isinstance(one, dict):
+                    continue
+                one_chart = format_nav_chart_from_akshare(one, sym)
+                if not one_chart or not isinstance(one_chart.get("data"), dict):
+                    continue
+                range_data[label] = one_chart["data"]
+                period_options.append(label)
+            if period_options:
+                default_period = "近1年" if "近1年" in period_options else period_options[0]
+                default_data = range_data.get(default_period)
+                if isinstance(default_data, dict):
+                    charts.append(
+                        {
+                            "id": f"nav_{sym}",
+                            "title": "净值走势",
+                            "type": "line",
+                            "description": "支持近1月/近3月/近1年/成立以来切换",
+                            "data": default_data,
+                            "options": {
+                                "showLegend": True,
+                                "showGrid": True,
+                                "yAxisLabel": "累计收益率(%)",
+                                "periodOptions": period_options,
+                                "rangeData": range_data,
+                            },
+                        }
+                    )
+                    daily_nav_added += 1
+                    continue
+        nd = fund.get("nav_data")
+        if isinstance(nd, dict) and nd.get("ok"):
+            dch = format_nav_chart_from_akshare(nd, str(fund.get("symbol") or ""))
+            if dch:
+                charts.append(dch)
+                daily_nav_added += 1
 
     # LLM 文本拆分为 sections
     text_sections: list[Any] = _split_llm_text_to_sections(llm_text)
@@ -1967,6 +1842,7 @@ def build_single_output(
     analysis_volatility_value = next((str(v) for k, v in analysis_kv.items() if "波动" in str(k) or "vol" in str(k).lower()), "")
     struct_block = _build_structured_achievement_block(fund0) if isinstance(fund0, dict) else ""
     struct_lines = len(struct_block.splitlines()) if struct_block else 0
+    
     # 合并: 先表格，后文本
     all_sections: list[Any] = table_sections + text_sections
 
@@ -2041,14 +1917,19 @@ def build_compare_output(
     radar = format_style_radar(funds)
     if radar:
         charts.append(radar)
+
+    # 5. 年化波动率趋势图
+    vol_trend = format_volatility_trend_chart(funds)
+    if vol_trend:
+        charts.append(vol_trend)
     
-    # 5. 资产配置饼图（每只基金）
+    # 6. 资产配置饼图（每只基金）
     for fund in funds:
         chart = format_asset_chart(fund)
         if chart:
             charts.append(chart)
     
-    # 6. 费率环形图（第一只基金）
+    # 7. 费率环形图（第一只基金）
     if funds:
         fee_donut = format_fee_donut_chart(funds)
         if fee_donut:

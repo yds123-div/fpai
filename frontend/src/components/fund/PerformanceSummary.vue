@@ -6,6 +6,17 @@
         <div class="metric-value">{{ m.value || '-' }}</div>
       </div>
     </div>
+    <div v-if="riskPeriodOptions.length > 1" class="risk-switches">
+      <button
+        v-for="period in riskPeriodOptions"
+        :key="period"
+        class="risk-switch-btn"
+        :class="{ active: riskPeriod === period }"
+        @click="riskPeriod = period"
+      >
+        {{ period }}
+      </button>
+    </div>
     <div class="ytd-card">
       <div class="block-title">今年收益与排行</div>
       <div class="ytd-row">
@@ -124,6 +135,8 @@ interface StructuredPerfRow {
   ret: string
   rank: string
   drawdown: string
+  sharpe: string
+  volatility: string
 }
 
 interface RankPeriodOption {
@@ -202,7 +215,9 @@ function parseStructuredPerfRows(content: string): StructuredPerfRow[] {
     const ret = pick(line, [/收益率[：:\s]*([+-]?\d+(?:\.\d+)?%)/, /收益[：:\s]*([+-]?\d+(?:\.\d+)?%)/])
     const rank = parseRankText(line)
     const drawdown = pick(line, [/最大回撤(?:率)?[：:\s]*([+-]?\d+(?:\.\d+)?%)/])
-    return { period, ret, rank, drawdown }
+    const sharpe = pick(line, [/夏普比率[：:\s]*([+-]?\d+(?:\.\d+)?)/, /夏普[：:\s]*([+-]?\d+(?:\.\d+)?)/])
+    const volatility = pick(line, [/年化波动率[：:\s]*([+-]?\d+(?:\.\d+)?%)/, /波动率[：:\s]*([+-]?\d+(?:\.\d+)?%)/])
+    return { period, ret, rank, drawdown, sharpe, volatility }
   }).filter((r) => !!r.period)
 }
 
@@ -309,28 +324,76 @@ const inceptionPerf = computed(() => {
   return { ret, rank }
 })
 
+const metricExtractionDebug = computed(() => {
+  const text = props.section.content || ''
+  const structuredRows = parseStructuredPerfRows(text)
+  const structuredBlock = (() => {
+    const start = text.indexOf('【结构化业绩数据】')
+    const end = text.indexOf(STRUCTURED_PERF_DELIM)
+    if (start === -1 || end === -1 || end <= start) return ''
+    return text.slice(start, end)
+  })()
+  const sharpeMatch = text.match(/夏普比率(?:维持在|在)?[：:\s]*([+-]?\d+(?:\.\d+)?(?:\s*[-~至]\s*[+-]?\d+(?:\.\d+)?)?)/)
+    || text.match(/夏普(?:维持在|在)?[：:\s]*([+-]?\d+(?:\.\d+)?(?:\s*[-~至]\s*[+-]?\d+(?:\.\d+)?)?)/)
+  const volMatch = text.match(/年化波动率(?:较低|较高|维持在|在)?[^\d+-]*([+-]?\d+(?:\.\d+)?%(?:\s*[-~至]\s*[+-]?\d+(?:\.\d+)?%)?)/)
+    || text.match(/波动率(?:较低|较高|维持在|在)?[^\d+-]*([+-]?\d+(?:\.\d+)?%(?:\s*[-~至]\s*[+-]?\d+(?:\.\d+)?%)?)/)
+  return {
+    structuredRowsCount: structuredRows.length,
+    structuredPeriods: structuredRows.map((r) => r.period),
+    structuredBlockHasSharpe: /夏普/.test(structuredBlock),
+    structuredBlockHasVolatility: /波动/.test(structuredBlock),
+    textHasSharpeKeyword: /夏普/.test(text),
+    textHasVolatilityKeyword: /波动/.test(text),
+    sharpeMatch: sharpeMatch?.[1] || '',
+    volatilityMatch: volMatch?.[1] || '',
+  }
+})
+
+const riskPeriod = ref('')
+const riskRows = computed(() => {
+  const structured = parseStructuredPerfRows(props.section.content || '')
+  const periods = ['近1年', '近3年', '近5年']
+  return periods
+    .map((p) => {
+      const r = structured.find((x) => x.period === p)
+      return { period: p, sharpe: r?.sharpe || '', volatility: r?.volatility || '' }
+    })
+    .filter((r) => r.sharpe || r.volatility)
+})
+const riskPeriodOptions = computed(() => riskRows.value.map((r) => r.period))
+watch(
+  riskPeriodOptions,
+  (opts) => {
+    if (!opts.length) {
+      riskPeriod.value = ''
+      return
+    }
+    if (!riskPeriod.value || !opts.includes(riskPeriod.value)) {
+      riskPeriod.value = opts[0]
+    }
+  },
+  { immediate: true },
+)
+const activeRisk = computed(() => riskRows.value.find((r) => r.period === riskPeriod.value) || riskRows.value[0] || null)
+
 const metrics = computed<MetricItem[]>(() => {
   const text = props.section.content || ''
   const inception = inceptionPerf.value
-  const sharpe = pick(text, [
-    /近1年年化夏普比率[：:\s]*([+-]?\d+(?:\.\d+)?)/,
-    /近3年年化夏普比率[：:\s]*([+-]?\d+(?:\.\d+)?)/,
-    /成立以来年化夏普比率[：:\s]*([+-]?\d+(?:\.\d+)?)/,
-    /年化夏普比率[：:\s]*([+-]?\d+(?:\.\d+)?)/,
+  const fallbackSharpe = pick(text, [
     /夏普比率(?:维持在|在)?[：:\s]*([+-]?\d+(?:\.\d+)?(?:\s*[-~至]\s*[+-]?\d+(?:\.\d+)?)?)/,
     /夏普(?:维持在|在)?[：:\s]*([+-]?\d+(?:\.\d+)?(?:\s*[-~至]\s*[+-]?\d+(?:\.\d+)?)?)/,
   ])
-  const volatility = pick(text, [
-    /近1年年化波动率[：:\s]*([+-]?\d+(?:\.\d+)?%(?:\s*[-~至]\s*[+-]?\d+(?:\.\d+)?%)?)/,
-    /近3年年化波动率[：:\s]*([+-]?\d+(?:\.\d+)?%(?:\s*[-~至]\s*[+-]?\d+(?:\.\d+)?%)?)/,
-    /成立以来年化波动率[：:\s]*([+-]?\d+(?:\.\d+)?%(?:\s*[-~至]\s*[+-]?\d+(?:\.\d+)?%)?)/,
+  const fallbackVolatility = pick(text, [
     /年化波动率(?:较低|较高|维持在|在)?[^\d+-]*([+-]?\d+(?:\.\d+)?%(?:\s*[-~至]\s*[+-]?\d+(?:\.\d+)?%)?)/,
     /波动率(?:较低|较高|维持在|在)?[^\d+-]*([+-]?\d+(?:\.\d+)?%(?:\s*[-~至]\s*[+-]?\d+(?:\.\d+)?%)?)/,
   ])
+  const sharpe = activeRisk.value?.sharpe || fallbackSharpe
+  const volatility = activeRisk.value?.volatility || fallbackVolatility
+  const riskPeriodLabel = activeRisk.value?.period ? `（${activeRisk.value.period}）` : ''
   return [
     { label: '成立以来收益', value: inception.ret },
-    { label: '年化夏普（优先近1年）', value: sharpe },
-    { label: '年化波动（优先近1年）', value: volatility },
+    { label: `夏普比率${riskPeriodLabel}`, value: sharpe },
+    { label: `年化波动${riskPeriodLabel}`, value: volatility },
     { label: '成立以来同类排名', value: rankToPctDisplay(inception.rank) },
   ]
 })
@@ -461,6 +524,7 @@ const analysisText = computed(() => {
   return points.join('')
 })
 
+// instrumentation removed
 </script>
 
 <style scoped>
@@ -614,6 +678,12 @@ const analysisText = computed(() => {
   gap: 6px;
 }
 
+.risk-switches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .rank-switch-btn {
   border: 1px solid #cbd5e1;
   background: #fff;
@@ -625,7 +695,24 @@ const analysisText = computed(() => {
   cursor: pointer;
 }
 
+.risk-switch-btn {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #475569;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+}
+
 .rank-switch-btn.active {
+  border-color: #3b82f6;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.risk-switch-btn.active {
   border-color: #3b82f6;
   background: #eff6ff;
   color: #1d4ed8;

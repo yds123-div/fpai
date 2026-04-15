@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="info-card" :class="`card-${card.type}`">
     <div class="card-header">{{ displayTitle }}</div>
     <div class="card-body">
@@ -27,17 +27,6 @@ import { computed } from 'vue'
 import type { InfoCard } from '@/types/fundAnalysis'
 
 const props = defineProps<{ card: InfoCard }>()
-
-// #region agent log
-;(() => {
-  const g = globalThis as unknown as { __fpai_infoCardSetupLogOnce?: Set<string> }
-  if (!g.__fpai_infoCardSetupLogOnce) g.__fpai_infoCardSetupLogOnce = new Set()
-  const sig = `${String(props.card?.id || '')}|${String(props.card?.type || '')}|${String(props.card?.title || '')}`
-  if (g.__fpai_infoCardSetupLogOnce.has(sig)) return
-  g.__fpai_infoCardSetupLogOnce.add(sig)
-  fetch('http://127.0.0.1:7669/ingest/4cdaf589-267c-490a-b8bd-b5f39b81bae4',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8192fd'},body:JSON.stringify({sessionId:'8192fd',runId:'pre-fix',hypothesisId:'B',location:'InfoCard.vue:setup',message:'InfoCard setup reached',data:{id:props.card?.id,type:props.card?.type,title:props.card?.title,keysCount:Object.keys((props.card?.data||{}) as Record<string,unknown>).length},timestamp:Date.now()})}).catch(()=>{});
-})()
-// #endregion
 
 const LABEL_MAP: Record<string, string> = {
   code: '基金代码',
@@ -124,17 +113,6 @@ const tableRows = computed(() => {
       value: String(obj?.[k] ?? '')
     }))
     .filter((r) => r.value !== '')
-
-  // #region agent log
-  ;(() => {
-    const g = globalThis as unknown as { __fpai_infoCardLogOnce?: Set<string> }
-    if (!g.__fpai_infoCardLogOnce) g.__fpai_infoCardLogOnce = new Set()
-    const sig = `${String(props.card.id || '')}|${String(props.card.type || '')}|${String(props.card.title || '')}`
-    if (g.__fpai_infoCardLogOnce.has(sig)) return
-    g.__fpai_infoCardLogOnce.add(sig)
-    fetch('http://127.0.0.1:7669/ingest/4cdaf589-267c-490a-b8bd-b5f39b81bae4',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8192fd'},body:JSON.stringify({sessionId:'8192fd',runId:'pre-fix',hypothesisId:'A',location:'InfoCard.vue:tableRows',message:'render basic-info as table',data:{id:props.card.id,type:props.card.type,title:props.card.title,useTableLayout:useTableLayout.value,rowCount:rows.length,keysCount:keys.length},timestamp:Date.now()})}).catch(()=>{});
-  })()
-  // #endregion
 
   return rows
 })

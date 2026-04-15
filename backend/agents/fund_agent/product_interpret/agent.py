@@ -20,6 +20,62 @@ from pkg.logger import get_logger
 logger = get_logger(__name__)
 
 
+def _compact_supplier_data_for_prompt(supplier_data: Any) -> Any:
+    """压缩供应商数据，避免把大体量时序数据直接塞进 LLM 上下文。"""
+    if not isinstance(supplier_data, dict):
+        return supplier_data
+    out = dict(supplier_data)
+    payload = out.get("payload")
+    if not isinstance(payload, dict):
+        return out
+    p2 = dict(payload)
+    funds = p2.get("funds")
+    if isinstance(funds, list):
+        compact_funds: list[dict[str, Any]] = []
+        for f in funds[:3]:
+            if not isinstance(f, dict):
+                continue
+            one = dict(f)
+            # nav_data / nav_data_periods 数据点太大，仅保留统计信息
+            nav = one.get("nav_data")
+            if isinstance(nav, dict):
+                nrows = len(nav.get("data") or []) if isinstance(nav.get("data"), list) else 0
+                one["nav_data"] = {"ok": bool(nav.get("ok")), "rows": nrows}
+            navp = one.get("nav_data_periods")
+            if isinstance(navp, dict):
+                navp_stats: dict[str, Any] = {}
+                for k, v in navp.items():
+                    if isinstance(v, dict):
+                        navp_stats[str(k)] = {
+                            "ok": bool(v.get("ok")),
+                            "rows": len(v.get("data") or []) if isinstance(v.get("data"), list) else 0,
+                        }
+                one["nav_data_periods"] = navp_stats
+            # 其余模块仅截断前若干行，减少 token
+            for mk in (
+                "basic_info",
+                "achievement",
+                "analysis",
+                "detail_hold",
+                "detail_info",
+                "manager_tenure",
+                "manager_career",
+                "profit_probability",
+            ):
+                mv = one.get(mk)
+                if isinstance(mv, dict) and isinstance(mv.get("data"), list):
+                    d = mv.get("data") or []
+                    one[mk] = {
+                        **mv,
+                        "data": d[:30],
+                        "total_rows": len(d),
+                    }
+            compact_funds.append(one)
+        p2["funds"] = compact_funds
+    out["payload"] = p2
+    return out
+
+
 DEFAULT_SYSTEM_PROMPT = """
 重要：不要输出任何 <think> 或推理过程，只输出最终结果文本。
 你的角色设定如下：
@@ -130,21 +186,28 @@ class ProductInterpretAgent(BaseBusinessAgent):
             supplier_data = ctx.permission_context.get("fund_supplier_data") or ctx.permission_context.get("fundData")
 
         today = datetime.now().strftime("%Y-%m-%d")
+        prompt_supplier_data = _compact_supplier_data_for_prompt(supplier_data)
         user_prompt = (
             f"当日日期：{today}\n"
             f"用户问题：{(question or '').strip()}\n\n"
-            f"基金供应商数据（JSON，可能为空）：\n{json.dumps(supplier_data, ensure_ascii=False)}"
+            f"基金供应商数据（JSON，可能为空）：\n{json.dumps(prompt_supplier_data, ensure_ascii=False)}"
         )
-
         try:
             await _emit_progress(ctx, "llm_generating")
-            return await _llm_call_maybe_stream(
+            reply_text = await _llm_call_maybe_stream(
                 ctx=ctx,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
             )
+            try:
+                from pkg.fund_formatter import build_single_output
+
+                ctx.structured_outputs = [build_single_output(supplier_data, reply_text)]
+            except Exception:
+                ctx.structured_outputs = None
+            return reply_text
         except Exception as e:
             logger.warning("ProductInterpretAgent LLM 调用失败，返回兜底: %s", e)
             return "【产品解析】目前未获取到可用于分析的基金供应商数据，暂无法按要求输出分析结果。请先提供基金代码或配置数据获取工具。"

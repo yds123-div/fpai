@@ -16,6 +16,9 @@
         <div :class="['message-row', msg.role]">
           <div class="message-bubble">
             <div class="message-content">
+              <template v-if="msg.role === 'assistant' && msg.fundAnalysis">
+                <FundAnalysis :analysis="msg.fundAnalysis" />
+              </template>
               <template v-if="msg.role === 'assistant' && parseThink(msg.content).think">
                 <div class="think-block">
                   <div class="think-header">
@@ -124,6 +127,8 @@ import { ref, nextTick, onMounted } from 'vue'
 import { postChatStream } from '@/api/chat'
 import { listModels } from '@/api/models'
 import { listKnowledgeBases } from '@/api/knowledge'
+import FundAnalysis from '@/components/fund/FundAnalysis.vue'
+import { extractStructuredOutput, parseFundAnalysis } from '@/utils/fundAnalysisParser'
 
 const listRef = ref(null)
 const messages = ref([])
@@ -157,6 +162,21 @@ const thinkExpanded = ref({})
 const streamingThinkExpanded = ref(false)
 
 let abortStream = null
+
+function extractFundCodes(text) {
+  const s = (text || '').toString()
+  const m = s.match(/\b\d{6}\b/g)
+  if (!m) return []
+  // 去重并保持顺序
+  const seen = new Set()
+  const out = []
+  for (const code of m) {
+    if (seen.has(code)) continue
+    seen.add(code)
+    out.push(code)
+  }
+  return out
+}
 
 function filterOption(input, option) {
   const v = (input || '').toLowerCase()
@@ -260,6 +280,9 @@ function send() {
     message: text,
     sessionId: sessionId.value || undefined,
     stream: true,
+    // 若用户在问题中直接输入基金代码，则自动填充 productIds，
+    // 以触发后端的基金分析结构化输出（cards/sections/charts）。
+    productIds: extractFundCodes(text) || undefined,
     model_id: selectedModel.value || undefined,
     knowledge_base_id: selectedKnowledgeBase.value || undefined,
     showThinking: true,
@@ -289,6 +312,10 @@ function send() {
       streamCitations.value = []
       const suggestedQuestions = Array.isArray(data?.suggestedQuestions) ? data.suggestedQuestions : []
 
+      const structured = extractStructuredOutput(data?.structuredOutputs)
+      const parsedFromText = structured ? null : parseFundAnalysis(fullText)
+      const fundAnalysis = structured || parsedFromText
+
       const aid = data?.answerId || String(Date.now())
       thinkExpanded.value[aid] = false
       messages.value.push({
@@ -298,6 +325,7 @@ function send() {
         citations,
         answerId: data?.answerId,
         suggestedQuestions,
+        fundAnalysis,
       })
       loading.value = false
       scrollToBottom()

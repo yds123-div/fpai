@@ -126,13 +126,20 @@ class ProductQueryAgent(BaseBusinessAgent):
 
         try:
             await _emit_progress(ctx, "llm_generating")
-            return await _llm_call_maybe_stream(
+            reply_text = await _llm_call_maybe_stream(
                 ctx=ctx,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
             )
+            try:
+                from pkg.fund_formatter import build_single_output
+
+                ctx.structured_outputs = [build_single_output(supplier_data, reply_text)]
+            except Exception:
+                ctx.structured_outputs = None
+            return reply_text
         except Exception as e:
             logger.warning("ProductQueryAgent LLM 调用失败，返回兜底: %s", e)
             return "【产品查询】目前未获取到可用于分析的基金供应商数据，暂无法按要求输出结果。请先提供基金代码或配置数据获取工具。"

@@ -520,11 +520,18 @@ class CoordinatorAgent:
             planner_skill_keys = resolve_agent_skill_keys(agent_key="task_planner") or []
             if planner_skill_keys:
                 await _emit_progress(ctx, "coordinator_skill_fetching")
-                planner_skill_payload = await run_configured_skills(
-                    skill_keys=planner_skill_keys,
-                    question=q,
-                    ctx=planner_ctx,
-                )
+                try:
+                    planner_skill_payload = await asyncio.wait_for(
+                        run_configured_skills(
+                            skill_keys=planner_skill_keys,
+                            question=q,
+                            ctx=planner_ctx,
+                        ),
+                        timeout=15,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("Coordinator planner skills timeout (15s)")
+                    planner_skill_payload = None
         except Exception as e:
             logger.warning("Coordinator planner skills failed: %s", e)
             planner_skill_payload = None
@@ -539,13 +546,21 @@ class CoordinatorAgent:
             await _emit_progress(ctx, "coordinator_planning")
             from model_gateway.llm import llm_chat
 
-            raw = await asyncio.to_thread(
-                llm_chat,
-                [{"role": "system", "content": system_prompt}, {"role": "user", "content": user}],
-                model=planner_ctx.model_name,
-                base_url=planner_ctx.base_url,
-                api_key=planner_ctx.api_key,
-            )
+            try:
+                raw = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        llm_chat,
+                        [{"role": "system", "content": system_prompt}, {"role": "user", "content": user}],
+                        model=planner_ctx.model_name,
+                        base_url=planner_ctx.base_url,
+                        api_key=planner_ctx.api_key,
+                    ),
+                    timeout=30,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Coordinator plan llm_chat timeout (30s), fallback to heuristic")
+                cat = _heuristic_classify(q)
+                return {"multi": False, "tasks": [{"type": cat, "question": q}], "final_instruction": ""}
             raw_text = _safe_first_str(raw)
             json_text = _extract_json_object(raw_text) or raw_text
             plan = _parse_plan_output(json_text) or None

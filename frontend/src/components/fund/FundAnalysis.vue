@@ -42,7 +42,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent } from 'vue'
+import { computed, defineAsyncComponent, watchEffect } from 'vue'
 import type { AnalysisSection, FundAnalysisOutput } from '@/types/fundAnalysis'
 import InfoCard from './InfoCard.vue'
 import TableSectionVue from './TableSection.vue'
@@ -93,6 +93,13 @@ const visibleSections = computed(() => {
   })
 })
 
+watchEffect(() => {
+  const sections = props.analysis.sections || []
+  const perfSections = sections.filter(
+    s => s.type === 'text' && isPerformanceTitle((s as { title?: string }).title || ''),
+  )
+  void perfSections
+})
 </script>
 
 <style scoped>

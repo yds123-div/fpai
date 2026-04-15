@@ -245,7 +245,7 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
     import time
     t_api_start = time.perf_counter()
     trace_id_temp = (request.headers.get("X-Request-Id") or "").strip() or "unknown"
-    logger.info(f"[PERF][{trace_id_temp}] API /chat 请求到达 | stream={body.stream}")
+    logger.info(f"📨 [{trace_id_temp[:8]}] /chat 请求 stream={body.stream}")
     
     # 1) 会话管理与权限上下文并行处理
     user_id = getattr(auth, "user_id", "") or ""
@@ -299,7 +299,7 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
     
     # 并行执行
     t_now = time.perf_counter()
-    logger.info(f"[PERF][{trace_id_temp}] 开始并行初始化 | 耗时={t_now - t_api_start:.3f}s")
+    # 并行初始化开始不记录日志
     
     session_result, permission_context, trace_id, msg = await asyncio.gather(
         _handle_session(),
@@ -309,7 +309,8 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
     )
     
     t_now = time.perf_counter()
-    logger.info(f"[PERF][{trace_id_temp}] 并行初始化完成 | 累计={t_now - t_api_start:.3f}s")
+    if t_now - t_api_start > 2.0:  # 只记录超过2秒的初始化
+        logger.info(f"⏱️  [{trace_id_temp[:8]}] 并行初始化耗时 {t_now - t_api_start:.2f}s")
     
     # 检查会话是否有效
     if session_result is None:
@@ -320,7 +321,7 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
 
     # 2) 更新会话上下文（写回）+ 落用户消息 并行
     t_now = time.perf_counter()
-    logger.info(f"[PERF][{trace_id_temp}] 开始会话上下文更新 | 耗时={t_now - t_api_start:.3f}s")
+    # 会话上下文更新开始不记录日志
     
     customer_profile_str = _stringify_customer_profile(body.customerProfile)
     
@@ -336,7 +337,7 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
     )
     
     t_now = time.perf_counter()
-    logger.info(f"[PERF][{trace_id_temp}] 会话上下文更新完成 | 累计={t_now - t_api_start:.3f}s")
+    # 会话上下文更新完成不记录日志（通常很快）
 
     # 3) 供编排使用的会话上下文（合并 request + session）
     ctx = get_session_context_for_orchestration(session_id)
@@ -393,13 +394,13 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
     if body.stream is False:
         try:
             t_now = time.perf_counter()
-            logger.info(f"[PERF][{trace_id_temp}] 开始编排执行 | 累计={t_now - t_api_start:.3f}s")
+            # 编排执行开始不记录日志
             
             data = await _run_once()
             
             t_now = time.perf_counter()
-            logger.info(f"[PERF][{trace_id_temp}] 编排执行完成 | 累计={t_now - t_api_start:.3f}s")
-            logger.info(f"[PERF][{trace_id_temp}] API /chat 响应返回 | 总耗时={t_now - t_api_start:.3f}s")
+            total_time = t_now - t_api_start
+            logger.info(f"✅ [{trace_id_temp[:8]}] /chat 完成 总耗时 {total_time:.2f}s")
             
             return JSONResponse(status_code=200, content=envelope(code=ErrorCode.OK, message="ok", data=data))
         except Exception:
@@ -510,6 +511,7 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
                         "compliance": result.compliance or {},
                         "trace": result.trace or {},
                         "suggestedQuestions": result.suggested_questions or [],
+                        "structuredOutputs": getattr(result, "structured_outputs", None) or [],
                     }
                     # 若未走 token 流式（比如没有 base_url），此处补发一次性文本（分块）
                     answer_blocks = data.get("answerBlocks") or []
@@ -533,6 +535,7 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
                             "suggestedQuestions": data.get("suggestedQuestions") or [],
                             "compliance": data.get("compliance") or {},
                             "answerBlocks": data.get("answerBlocks") or [],
+                            "structuredOutputs": data.get("structuredOutputs") or [],
                         },
                     )
                     await _emit("__end__", None)
@@ -573,6 +576,7 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
                                 "trace": payload.get("trace") or {},
                                 "suggestedQuestions": payload.get("suggestedQuestions") or [],
                                 "compliance": payload.get("compliance") or {},
+                                "structuredOutputs": payload.get("structuredOutputs") or [],
                             },
                         ).encode("utf-8")
                         await asyncio.sleep(0)

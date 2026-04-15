@@ -77,6 +77,7 @@ class ChatTurnResult:
     suggested_questions: list[str] = field(default_factory=list)
     intent: str = ""
     slots: dict[str, Any] = field(default_factory=dict)
+    structured_outputs: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _strip_think_blocks(text: str, *, show_thinking: bool = False) -> str:
@@ -438,6 +439,14 @@ async def run_chat_turn_async(
         reply_text = "当前无法生成回复，请稍后重试或换一种方式提问。"
     else:
         reply_text = _strip_think_blocks(reply_text, show_thinking=bool(show_thinking))
+
+    # 结构化输出：由业务 agent 写入 ctx_obj.structured_outputs，这里统一透传给 API（SSE done / 非流式 JSON）
+    try:
+        so = getattr(ctx_obj, "structured_outputs", None)
+        if isinstance(so, list) and so:
+            result.structured_outputs = [x for x in so if isinstance(x, dict)]
+    except Exception:
+        pass
 
     # 4) 输出合规
     compliance_output = None

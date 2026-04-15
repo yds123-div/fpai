@@ -23,15 +23,6 @@ export interface TableDef {
   headers: string[]
   rows: Array<Record<string, unknown>>
   highlight?: string[]
-  /**
-   * Optional per-cell rendering metadata.
-   * - classes: map key `${rowIndex}|${header}` -> className
-   * - tooltips: map key `${rowIndex}|${header}` -> tooltip text
-   */
-  cell?: {
-    classes?: Record<string, string>
-    tooltips?: Record<string, string>
-  }
 }
 
 export interface TableSection {

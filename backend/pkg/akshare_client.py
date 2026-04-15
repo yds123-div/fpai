@@ -986,6 +986,19 @@ class AkShareClient:
         except Exception as e:
             rating_info = {"ok": False, "message": str(e), "data": {}}
 
+        # 多周期净值（与上方 nav_data 默认 1 年互补；近1 年直接复用 nav_data，避免重复请求）
+        nav_data_periods: dict[str, Any] = {"近1年": nav_data}
+        nav_period_map = [
+            ("近1月", "1月"),
+            ("近3月", "3月"),
+            ("成立以来", "成立来"),
+        ]
+        for label, period in nav_period_map:
+            try:
+                nav_data_periods[label] = await self.get_nav_data(symbol, period=period)
+            except Exception as e:
+                nav_data_periods[label] = {"ok": False, "message": str(e), "data": []}
+
         return {
             "ok": True,
             "data": {
@@ -999,6 +1012,7 @@ class AkShareClient:
                 "manager_tenure": manager_tenure,
                 "manager_career": manager_career,
                 "rating_info": rating_info,
+                "nav_data_periods": nav_data_periods,
             },
         }
 

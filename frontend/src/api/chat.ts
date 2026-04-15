@@ -87,7 +87,9 @@ export function postChatStream(
               if (currentEvent === 'message') onMessage?.(data)
               else if (currentEvent === 'citation') onCitation?.(data)
               else if (currentEvent === 'status') onStatus?.(data as { stage?: string; message?: string })
-              else if (currentEvent === 'done') onDone?.(data)
+              else if (currentEvent === 'done') {
+                onDone?.(data)
+              }
               else if (currentEvent === 'error') onError?.(data as { code?: number; message?: string })
             } catch {
               // ignore
