@@ -15,9 +15,8 @@
       </template>
     </div>
 
-    <div v-if="analysis.charts.length" class="fa-charts">
-      <div v-for="chart in analysis.charts" :key="chart.id" class="chart-wrapper">
-        <component v-if="isDev && ChartDebug" :is="ChartDebug" :chart="chart" />
+    <div v-if="visibleCharts.length" class="fa-charts">
+      <div v-for="chart in visibleCharts" :key="chart.id" class="chart-wrapper">
         <Suspense>
           <ChartRenderer :chart="chart" />
           <template #fallback>
@@ -28,7 +27,7 @@
     </div>
     <div v-else class="no-charts">
       <p><span class="no-chart-icon" aria-hidden="true">!</span> 没有图表数据</p>
-      <p>charts 数组长度: {{ analysis.charts?.length || 0 }}</p>
+      <p>当前问题未返回可展示的图表。</p>
     </div>
 
     <div
@@ -43,15 +42,13 @@
 
 <script setup lang="ts">
 import { computed, defineAsyncComponent, watchEffect } from 'vue'
-import type { AnalysisSection, FundAnalysisOutput } from '@/types/fundAnalysis'
+import type { AnalysisSection, ChartConfig, FundAnalysisOutput } from '@/types/fundAnalysis'
 import InfoCard from './InfoCard.vue'
 import TableSectionVue from './TableSection.vue'
 import TextSectionVue from './TextSection.vue'
 import PerformanceSummary from './PerformanceSummary.vue'
 
 const ChartRenderer = defineAsyncComponent(() => import('./ChartRenderer.vue'))
-const isDev = import.meta.env.DEV
-const ChartDebug = isDev ? defineAsyncComponent(() => import('./ChartDebug.vue')) : null
 
 const props = defineProps<{ analysis: FundAnalysisOutput }>()
 
@@ -91,6 +88,42 @@ const visibleSections = computed(() => {
 
     return true
   })
+})
+
+function extractFundCodeFromSections(sections: AnalysisSection[]): string {
+  const table = (sections || []).find(
+    (s): s is Extract<AnalysisSection, { type: 'table' }> =>
+      s.type === 'table' && /基金详细信息/i.test(s.title || ''),
+  )
+  const rows = table?.table?.rows || []
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue
+    const k = String((row as Record<string, unknown>)['字段'] ?? '').trim()
+    const v = String((row as Record<string, unknown>)['内容'] ?? '').trim()
+    if (k === '基金代码' && /^\d{6}$/.test(v)) return v
+  }
+  return ''
+}
+
+function isLowSignalChart(chart: ChartConfig): boolean {
+  const id = chart.id || ''
+  const title = chart.title || ''
+  // 低信息增量图先不面向用户展示，避免“图看起来高级但帮助决策有限”。
+  return /^style_radar$/i.test(id)
+}
+
+const visibleCharts = computed(() => {
+  const fundCode = extractFundCodeFromSections(props.analysis.sections || [])
+  return (props.analysis.charts || [])
+    .filter((c) => !isLowSignalChart(c))
+    .map((c) => {
+      const options = (c.options || {}) as Record<string, unknown>
+      // 仅为净值图补充 fundCode，供按周期懒加载使用
+      if (fundCode && String(c.id || '').startsWith('nav_')) {
+        return { ...c, options: { ...options, fundCode } }
+      }
+      return c
+    })
 })
 
 watchEffect(() => {

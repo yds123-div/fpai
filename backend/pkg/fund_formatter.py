@@ -644,10 +644,10 @@ def format_standard_14_fields_table(fund_obj: dict[str, Any]) -> TableSection | 
         return "-"
 
     def _rating_from_rating_info(fund: dict[str, Any]) -> str:
-        """当基础字段是'暂无评级'时，尝试从 rating_info 模块补充评级。"""
+        """提取第三方机构评级明细（上海证券/招商证券/济安金信）。"""
         ri = fund.get("rating_info")
         if not isinstance(ri, dict):
-            return "暂无评级（评级数据不可用）"
+            return "暂无该项数据"
         if not ri.get("ok"):
             data_obj = ri.get("data")
             if isinstance(data_obj, dict):
@@ -659,11 +659,11 @@ def format_standard_14_fields_table(fund_obj: dict[str, Any]) -> TableSection | 
                         if msg:
                             msgs.append(msg)
                 if msgs and all("not found" in m.lower() for m in msgs):
-                    return "暂无评级（该基金未纳入三方评级）"
-            return "暂无评级（评级数据暂不可用）"
+                    return "暂无该项数据"
+            return "暂无该项数据"
         data = ri.get("data")
         if not isinstance(data, dict):
-            return "暂无评级（评级数据格式异常）"
+            return "暂无该项数据"
 
         def _extract_stars(rec: dict[str, Any] | None) -> str:
             if not isinstance(rec, dict):
@@ -687,7 +687,13 @@ def format_standard_14_fields_table(fund_obj: dict[str, Any]) -> TableSection | 
             txt = _extract_stars(data.get(k))
             if txt:
                 parts.append(f"{agency}({txt})")
-        return " | ".join(parts) if parts else "暂无评级（该基金未纳入三方评级）"
+        return " | ".join(parts) if parts else "暂无该项数据"
+
+    def _composite_rating_status(third_party_rating: str) -> str:
+        """统一综合评级口径，避免与第三方分项评级冲突。"""
+        if third_party_rating and third_party_rating != "暂无该项数据":
+            return "暂无统一综合评级（当前仅提供第三方机构分项评级）"
+        return "暂无统一综合评级"
 
     def _parse_days(val: Any) -> int:
         try:
@@ -792,7 +798,8 @@ def format_standard_14_fields_table(fund_obj: dict[str, Any]) -> TableSection | 
         ("基金经理", ["基金经理", "经理"]),
         ("托管银行", ["托管银行", "基金托管人", "托管人"]),
         ("基金类型", ["基金类型", "类型", "基金分类"]),
-        ("基金评级", ["基金评级", "评级", "晨星评级", "星级"]),
+        ("第三方评级（机构）", ["基金评级", "评级", "晨星评级", "星级"]),
+        ("综合评级", ["综合评级"]),
         ("投资策略", ["投资策略", "策略"]),
         ("投资目标", ["投资目标", "目标"]),
         ("基金经理从业经验", ["基金经理从业经验"]),
@@ -819,8 +826,15 @@ def format_standard_14_fields_table(fund_obj: dict[str, Any]) -> TableSection | 
             value = tenure_years_text
         elif field_name == "基金经理管理本基金期间年化回报":
             value = tenure_ann_text
-        elif field_name == "基金评级" and value in {"-", "", "暂无评级"}:
-            value = _rating_from_rating_info(fund_obj)
+        elif field_name == "第三方评级（机构）":
+            if value in {"-", "", "暂无评级"}:
+                value = _rating_from_rating_info(fund_obj)
+        elif field_name == "综合评级":
+            third_party_rating = next(
+                (str(row.get("内容") or "") for row in rows if row.get("字段") == "第三方评级（机构）"),
+                "暂无该项数据",
+            )
+            value = _composite_rating_status(third_party_rating)
         # 特殊处理：费率优先由 detail_info 规则合成
         elif field_name == "费率" and value == "-":
             value = _compose_fee_summary(kv)

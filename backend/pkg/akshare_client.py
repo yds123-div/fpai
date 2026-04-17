@@ -14,6 +14,7 @@ import asyncio
 import logging
 import time
 import uuid
+from datetime import datetime, timedelta
 from typing import Any, Dict, Optional, Tuple
 
 import akshare as ak
@@ -821,11 +822,77 @@ class AkShareClient:
             period=period,
         )
         
+        # 重要：部分数据源会忽略 period 参数，返回全历史数据。
+        # 为保证“近1月/近3月/近1年/成立以来”切换可用，这里按日期再做一次裁剪。
+        if result.get("ok") and isinstance(result.get("data"), list):
+            try:
+                result["data"] = self._filter_nav_records_by_period(result["data"], period)
+            except Exception as e:
+                # 裁剪失败不影响主流程，仅记录 debug
+                self.logger.debug(
+                    "nav_data period filter failed",
+                    extra={"symbol": symbol, "period": period, "error": str(e)},
+                )
+
         # 如果成功，存入缓存
         if result.get("ok"):
             self._set_to_cache(cache_key, result)
         
         return result
+
+    @staticmethod
+    def _filter_nav_records_by_period(records: list[dict[str, Any]], period: str) -> list[dict[str, Any]]:
+        """
+        将净值时序 records 按 period 裁剪为近似窗口。
+        - 使用 records 中最大日期作为“截止日”
+        - 近1月=30天，近3月=90天，近6月=180天，近1年=365天，近3年=1095天
+        - 成立来：不裁剪
+        """
+        if not records or period == "成立来":
+            return records
+
+        days_map = {
+            "1月": 30,
+            "3月": 90,
+            "6月": 180,
+            "1年": 365,
+            "3年": 365 * 3,
+        }
+        days = days_map.get(period)
+        if not days:
+            return records
+
+        def _pick_date_str(rec: dict[str, Any]) -> str:
+            d = rec.get("净值日期") or rec.get("日期") or rec.get("date")
+            return str(d).strip() if d is not None else ""
+
+        parsed: list[tuple[datetime, dict[str, Any]]] = []
+        for r in records:
+            if not isinstance(r, dict):
+                continue
+            ds = _pick_date_str(r)
+            if not ds:
+                continue
+            try:
+                dt = datetime.strptime(ds[:10], "%Y-%m-%d")
+            except Exception:
+                # 兼容极少数 YYYY/MM/DD
+                try:
+                    dt = datetime.strptime(ds[:10].replace("/", "-"), "%Y-%m-%d")
+                except Exception:
+                    continue
+            parsed.append((dt, r))
+
+        if not parsed:
+            return records
+
+        end_dt = max(dt for dt, _ in parsed)
+        start_dt = end_dt - timedelta(days=days)
+        filtered = [r for dt, r in parsed if dt >= start_dt]
+
+        # 保留原始顺序（records 通常按时间升序；但为稳妥，按日期排序输出）
+        filtered.sort(key=lambda rec: (_pick_date_str(rec) or ""))
+        return filtered or records
     
     async def get_all_data(self, symbol: str) -> Dict[str, Any]:
         """并发获取单只基金的所有数据。
@@ -956,7 +1023,8 @@ class AkShareClient:
         # 额外：基金经理任期/任职回报（天天基金）与从业经验（AkShare 经理大全）
         manager_tenure: dict[str, Any] = {"ok": False, "data": [], "message": "not fetched"}
         manager_career: dict[str, Any] = {"ok": False, "data": [], "message": "not fetched"}
-        rating_info: dict[str, Any] = {"ok": False, "data": {}, "message": "not fetched"}
+        # rating_info 默认不拉取（第三方评级页面体积大且网络抖动时极慢，可能拖慢整次对话）
+        rating_info: dict[str, Any] = {"ok": False, "data": {}, "message": "not fetched (lazy)"}
         try:
             manager_tenure = await self.get_manager_tenure(symbol)
         except Exception as e:
@@ -977,14 +1045,15 @@ class AkShareClient:
                             mgr_names = [p.strip() for p in parts if p.strip()]
                         break
             if mgr_names:
-                manager_career = await self.get_manager_career(mgr_names)
+                # 经理大全偶发较慢；不阻塞主流程，超时降级
+                try:
+                    manager_career = await asyncio.wait_for(self.get_manager_career(mgr_names), timeout=6.0)
+                except asyncio.TimeoutError:
+                    manager_career = {"ok": False, "message": "manager_career timeout", "data": []}
         except Exception as e:
             manager_career = {"ok": False, "message": str(e), "data": []}
 
-        try:
-            rating_info = await self.get_rating_info(symbol)
-        except Exception as e:
-            rating_info = {"ok": False, "message": str(e), "data": {}}
+        # rating_info：保持懒加载，不在 get_all_data 中拉取
 
         # 多周期净值（与上方 nav_data 默认 1 年互补；近1 年直接复用 nav_data，避免重复请求）
         nav_data_periods: dict[str, Any] = {"近1年": nav_data}

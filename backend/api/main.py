@@ -34,6 +34,8 @@ from api.routes import agents as agents_routes
 from api.routes import rbac as rbac_routes
 from api.routes import skills as skills_routes
 from api.routes import config as config_routes
+from api.routes import funds as funds_routes
+from api.routes import fund_ratings as fund_ratings_routes
 from pkg.codes import ErrorCode, envelope, message_for
 from pkg.logger import configure_logging, get_logger
 
@@ -115,6 +117,8 @@ app.include_router(agents_routes.router, prefix="/api/v1")
 app.include_router(rbac_routes.router, prefix="/api/v1")
 app.include_router(skills_routes.router, prefix="/api/v1")
 app.include_router(config_routes.router, prefix="/api/v1")
+app.include_router(funds_routes.router, prefix="/api/v1")
+app.include_router(fund_ratings_routes.router, prefix="/api/v1")
 
 @app.get("/api/v1")
 def api_root():
