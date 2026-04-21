@@ -495,24 +495,11 @@ def format_basic_info_table(funds: list[dict[str, Any]]) -> TableSection | None:
 
 
 def format_standard_14_fields_table(fund_obj: dict[str, Any]) -> TableSection | None:
-    """格式化基金标准14字段信息表格。
-    
-    输出包含以下14个字段的表格：
-    1. 基金代码
-    2. 基金名称
-    3. 基金全称
-    4. 成立时间
-    5. 最新规模
-    6. 基金公司
-    7. 基金经理
-    8. 托管银行
-    9. 基金类型
-    10. 评级机构
-    11. 基金评级
-    12. 投资策略
-    13. 投资目标
-    14. 业绩比较基准
-    
+    """格式化基金详细信息表格。
+
+    输出字段包含基金基础信息、评级信息、经理维度指标、费率与业绩基准；
+    费率字段采用固定模板输出并带回退推断。
+
     Args:
         fund_obj: 基金数据对象，包含 symbol 和 basic_info/detail_info 等模块
         
@@ -545,8 +532,6 @@ def format_standard_14_fields_table(fund_obj: dict[str, Any]) -> TableSection | 
             "托管银行",
             "基金类型",
             "基金评级",
-            "投资策略",
-            "投资目标",
             "费率",
             "业绩比较基准",
         ]:
@@ -560,88 +545,169 @@ def format_standard_14_fields_table(fund_obj: dict[str, Any]) -> TableSection | 
         }
     
     def _compose_fee_summary(kv_data: dict[str, str]) -> str:
-        """将费率信息合成为固定句式：费率方面：...；...。"""
-        def _first_match_value(*keywords: str) -> str:
+        """严格固定模板输出费率，并对缺失分段做回退推断。"""
+
+        def _normalize_percent(raw: Any) -> str:
+            s = str(raw or "").strip()
+            if not s:
+                return "暂无数据"
+            if "免收" in s:
+                return "0%"
+            m = re.search(r"(-?\d+(?:\.\d+)?)", s)
+            if not m:
+                return s
+            try:
+                return f"{float(m.group(1)):g}%"
+            except Exception:
+                return s
+
+        def _pick_first_by_keywords(*keywords: str) -> str | None:
             for k, v in kv_data.items():
                 key = str(k).strip()
-                val = str(v).strip()
-                if not val:
-                    continue
                 if all(kw in key for kw in keywords):
-                    return val
-            return ""
+                    return _normalize_percent(v)
+            return None
+
+        def _is_redeem_key(key: str) -> bool:
+            return ("赎回" in key) or ("持有" in key)
 
         management_fee = (
-            kv_data.get("管理费率")
-            or kv_data.get("管理费")
-            or _first_match_value("管理", "费")
+            _normalize_percent(kv_data.get("管理费率"))
+            if kv_data.get("管理费率")
+            else None
         )
+        if not management_fee:
+            management_fee = (
+                _normalize_percent(kv_data.get("管理费"))
+                if kv_data.get("管理费")
+                else None
+            )
+        if not management_fee:
+            management_fee = _pick_first_by_keywords("管理", "费")
+        if not management_fee:
+            management_fee = "暂无数据"
+
         custody_fee = (
-            kv_data.get("托管费率")
-            or kv_data.get("托管费")
-            or _first_match_value("托管", "费")
+            _normalize_percent(kv_data.get("托管费率"))
+            if kv_data.get("托管费率")
+            else None
         )
-        sales_service_fee = (
-            kv_data.get("销售服务费率")
-            or kv_data.get("销售服务费")
-            or _first_match_value("销售", "服务", "费")
-        )
+        if not custody_fee:
+            custody_fee = (
+                _normalize_percent(kv_data.get("托管费"))
+                if kv_data.get("托管费")
+                else None
+            )
+        if not custody_fee:
+            custody_fee = _pick_first_by_keywords("托管", "费")
+        if not custody_fee:
+            custody_fee = "暂无数据"
 
-        base_redemption_fee = (
-            kv_data.get("赎回费率")
-            or kv_data.get("赎回费")
-            or _first_match_value("赎回", "费")
-        )
-        redemption_tiers: list[str] = []
-
-        def _tier_order(text: str) -> int:
-            if "7天内" in text:
-                return 1
-            if "7-30天" in text or "7至30天" in text:
-                return 2
-            if "30天以上" in text:
-                return 3
-            return 99
-
+        norm: dict[str, str] = {}
         for k, v in kv_data.items():
             key = str(k).strip()
-            val = str(v).strip()
             if not key:
                 continue
-            # 分段赎回规则：如“持有7天内赎回收取”“持有7-30天收取”“持有30天以上免收赎回费”
-            if "持有" in key:
-                if "免收" in key and not val:
-                    redemption_tiers.append(key)
-                elif val:
-                    redemption_tiers.append(f"{key}{val}")
+            norm[key] = "0%" if "免收" in key else _normalize_percent(v)
+
+        redeem_7d: str | None = None
+        redeem_1y: str | None = None
+        redeem_2y: str | None = None
+
+        def _parse_day_interval(key: str) -> tuple[float, float] | None:
+            m = re.search(
+                r"(\d+(?:\.\d+)?)\s*天\s*[<≤]\s*持有期限\s*[<≤]\s*(\d+(?:\.\d+)?)\s*天",
+                key,
+            )
+            if not m:
+                return None
+            try:
+                left = float(m.group(1))
+                right = float(m.group(2))
+            except Exception:
+                return None
+            if right <= left:
+                return None
+            return (left, right)
+
+        for key, val in norm.items():
+            if not _is_redeem_key(key):
                 continue
-            if key in {"赎回费", "赎回费率"}:
-                continue
-            if "赎回" in key and val:
-                redemption_tiers.append(f"{key}{val}")
+            interval = _parse_day_interval(key)
+            if interval:
+                left, right = interval
+                if right <= 7:
+                    redeem_7d = redeem_7d or val
+                elif left >= 7 and right <= 365:
+                    redeem_1y = redeem_1y or val
+                elif left >= 365 and right <= 730:
+                    redeem_2y = redeem_2y or val
+            if ("7天内" in key) or ("7日内" in key):
+                redeem_7d = redeem_7d or val
+            if (
+                ("7日-1年" in key)
+                or ("7天-1年" in key)
+                or ("7-365天" in key)
+                or ("30天-1年" in key)
+                or ("7-30天" in key)
+                or ("7至30天" in key)
+                or ("7天-30天" in key)
+            ):
+                redeem_1y = redeem_1y or val
+            if ("1-2年" in key) or ("1年-2年" in key) or ("365-730天" in key):
+                redeem_2y = redeem_2y or val
 
-        annual_fee_parts: list[str] = []
-        if management_fee:
-            annual_fee_parts.append(f"管理费{management_fee}")
-        if custody_fee:
-            annual_fee_parts.append(f"托管费{custody_fee}")
-        if sales_service_fee:
-            annual_fee_parts.append(f"销售服务费{sales_service_fee}")
+        cands = {k: v for k, v in norm.items() if _is_redeem_key(k)}
 
-        redemption_tiers = sorted(redemption_tiers, key=_tier_order)
+        def _pick_by_priority(patterns: list[str]) -> str | None:
+            for p in patterns:
+                for k, v in cands.items():
+                    if p in k:
+                        return v
+            return None
 
-        annual_part = "，".join(annual_fee_parts) if annual_fee_parts else ""
-        redemption_part = "，".join(redemption_tiers) if redemption_tiers else ""
-        if not redemption_part and base_redemption_fee:
-            redemption_part = f"赎回费{base_redemption_fee}"
+        if not redeem_1y:
+            redeem_1y = _pick_by_priority(
+                [
+                    "7-30天",
+                    "7至30天",
+                    "7天-30天",
+                    "30天-1年",
+                    "30日-1年",
+                    "30天以上",
+                    "30日以上",
+                    "1年以内",
+                    "1年以上",
+                ]
+            )
+        if not redeem_2y:
+            redeem_2y = _pick_by_priority(["1年-2年", "365-730天", "2年以上", "1年以上"])
+        if not redeem_7d:
+            redeem_7d = _pick_by_priority(["7天", "7日", "30天以内", "30日以内", "30天", "30日"])
 
-        if annual_part and redemption_part:
-            return f"费率方面：{annual_part}；{redemption_part}。"
-        if annual_part:
-            return f"费率方面：{annual_part}。"
-        if redemption_part:
-            return f"费率方面：{redemption_part}。"
-        return "-"
+        redeem_candidate_keys = [k for k in cands.keys()]
+        if redeem_candidate_keys and not any([redeem_7d, redeem_1y, redeem_2y]):
+            logger.warning(
+                "[FEE_DEBUG] redemption tiers unresolved; keys=%s",
+                redeem_candidate_keys[:20],
+            )
+        else:
+            logger.info(
+                "[FEE_DEBUG] redemption tier mapping resolved; 7d=%s, 1y=%s, 2y=%s, keys=%s",
+                redeem_7d,
+                redeem_1y,
+                redeem_2y,
+                redeem_candidate_keys[:20],
+            )
+
+        redeem_7d = redeem_7d or "暂无数据"
+        redeem_1y = redeem_1y or "暂无数据"
+        redeem_2y = redeem_2y or "暂无数据"
+
+        return (
+            f"费率方面：管理费 {management_fee}/年，托管费 {custody_fee}/年；"
+            f"赎回费：7日内 {redeem_7d}，7日-1年 {redeem_1y}，1-2年 {redeem_2y}"
+        )
 
     def _rating_from_rating_info(fund: dict[str, Any]) -> str:
         """提取第三方机构评级明细（上海证券/招商证券/济安金信）。"""
@@ -800,8 +866,6 @@ def format_standard_14_fields_table(fund_obj: dict[str, Any]) -> TableSection | 
         ("基金类型", ["基金类型", "类型", "基金分类"]),
         ("第三方评级（机构）", ["基金评级", "评级", "晨星评级", "星级"]),
         ("综合评级", ["综合评级"]),
-        ("投资策略", ["投资策略", "策略"]),
-        ("投资目标", ["投资目标", "目标"]),
         ("基金经理从业经验", ["基金经理从业经验"]),
         ("基金经理管理本基金年限", ["基金经理管理本基金年限"]),
         ("基金经理管理本基金期间年化回报", ["基金经理管理本基金期间年化回报"]),
@@ -835,8 +899,8 @@ def format_standard_14_fields_table(fund_obj: dict[str, Any]) -> TableSection | 
                 "暂无该项数据",
             )
             value = _composite_rating_status(third_party_rating)
-        # 特殊处理：费率优先由 detail_info 规则合成
-        elif field_name == "费率" and value == "-":
+        # 特殊处理：费率使用固定模板（含回退推断）
+        elif field_name == "费率":
             value = _compose_fee_summary(kv)
         
         rows.append({
@@ -1588,6 +1652,60 @@ def _split_llm_text_to_sections(llm_text: str) -> list[TextSection]:
     return sections
 
 
+def _build_fetch_failure_sections(funds: list[dict[str, Any]]) -> list[TextSection]:
+    """构建取数失败提示 section，供前端显式展示字段抓取异常。"""
+    sections: list[TextSection] = []
+    if not funds:
+        return sections
+
+    module_alias: dict[str, str] = {
+        "basic_info": "基础信息",
+        "achievement": "业绩表现",
+        "analysis": "风险分析",
+        "profit_probability": "盈亏概率",
+        "detail_hold": "持仓明细",
+        "detail_info": "费率详情",
+        "nav_data": "净值走势",
+        "manager_tenure": "经理任期",
+        "manager_career": "经理从业经验",
+        "rating_info": "第三方评级",
+    }
+    module_order = list(module_alias.keys())
+
+    for idx, fund in enumerate(funds):
+        if not isinstance(fund, dict):
+            continue
+        symbol = str(fund.get("symbol") or f"fund_{idx + 1}")
+        lines: list[str] = []
+        for key in module_order:
+            module = fund.get(key)
+            if not isinstance(module, dict):
+                continue
+            if module.get("ok", True):
+                continue
+            message = str(module.get("message") or "未知错误").strip()
+            label = module_alias.get(key, key)
+            lines.append(f"- {label}：抓取失败（{message}）")
+
+        if not lines:
+            continue
+
+        content = (
+            f"基金 {symbol} 有部分字段抓取失败，以下内容已降级展示，建议稍后重试：\n"
+            + "\n".join(lines)
+        )
+        section: TextSection = {
+            "id": f"fetch_status_{symbol}",
+            "title": f"数据抓取状态（{symbol}）",
+            "type": "text",
+            "content": content,
+            "tags": ["风险提示"],
+        }
+        sections.append(section)
+
+    return sections
+
+
 def _extract_summary(llm_text: str) -> str:
     """从 LLM 文本中提取摘要（取第一段或前 100 字）。"""
     text = re.sub(r"<think>[\s\S]*?</think>", "", llm_text or "", flags=re.IGNORECASE).strip()
@@ -1837,6 +1955,7 @@ def build_single_output(
 
     # LLM 文本拆分为 sections
     text_sections: list[Any] = _split_llm_text_to_sections(llm_text)
+    failure_sections = _build_fetch_failure_sections(funds)
     fund0 = funds[0] if funds else None
     if fund0:
         _inject_structured_achievement_into_perf_sections(text_sections, fund0)
@@ -1858,7 +1977,7 @@ def build_single_output(
     struct_lines = len(struct_block.splitlines()) if struct_block else 0
     
     # 合并: 先表格，后文本
-    all_sections: list[Any] = table_sections + text_sections
+    all_sections: list[Any] = table_sections + failure_sections + text_sections
 
     summary = _extract_summary(llm_text)
 
@@ -1951,9 +2070,10 @@ def build_compare_output(
 
     # LLM 文本 sections
     text_sections = _split_llm_text_to_sections(llm_text)
+    failure_sections = _build_fetch_failure_sections(funds)
 
     # 合并: 先表格，后文本
-    all_sections: list[Any] = table_sections + text_sections
+    all_sections: list[Any] = table_sections + failure_sections + text_sections
 
     summary = _extract_summary(llm_text)
 

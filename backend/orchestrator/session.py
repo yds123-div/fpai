@@ -83,8 +83,8 @@ def _ensure_session_in_mysql(session_id: str) -> None:
                     """INSERT IGNORE INTO sessions (id, user_id) VALUES (%s, %s)""",
                     (session_id, user_id or ""),
                 )
-    except Exception as e:
-        logger.debug("_ensure_session_in_mysql 跳过或失败: %s", e)
+    except Exception:
+        pass
 
 
 def get_session(session_id: str) -> dict[str, Any] | None:

@@ -588,27 +588,12 @@ class CoordinatorAgent:
                     codes_for_task = _pick_codes_for_question(qq, planner_name_code_pairs, planner_codes)
                     if codes_for_task:
                         qq = _rewrite_task_question_with_codes(qq, codes_for_task, tp)
-                        logger.debug(
-                            "planner task code mapping: type=%s, question='%s' -> '%s', matched_codes=%s",
-                            tp,
-                            qq_before,
-                            qq,
-                            codes_for_task,
-                        )
                     else:
                         # 未命中任何可信 code 时，清理规划器可能臆测出的代码
                         qq_codes = _extract_codes_from_text(qq)
                         trusted = set(user_input_codes + planner_codes)
                         if any(c not in trusted for c in qq_codes):
                             qq = _remove_untrusted_codes_from_question(qq)
-                            logger.debug(
-                                "planner task code sanitized: type=%s, question='%s' -> '%s', task_codes=%s, trusted_codes=%s",
-                                tp,
-                                qq_before,
-                                qq,
-                                qq_codes,
-                                list(trusted),
-                            )
                 norm.append({"type": tp, "question": qq})
 
             # 强约束：若用户未提供代码，且名称转代码也未命中，则直接中断，避免错误下钻。

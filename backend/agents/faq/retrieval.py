@@ -37,7 +37,6 @@ def search_faq(query: str, top_k: int = 5) -> list[FAQHit]:
     try:
         query_vectors = embed([query.strip()])
     except ModelNotConfiguredError:
-        logger.debug("Embedding 未配置，FAQ 检索返回空")
         return []
     if not query_vectors or not query_vectors[0]:
         return []

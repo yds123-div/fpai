@@ -75,16 +75,6 @@ class AkShareClient:
         self._cache_hits: int = 0
         self._cache_misses: int = 0
         
-        self.logger.debug(
-            "AkShareClient initialized",
-            extra={
-                "max_retries": max_retries,
-                "retry_delay": retry_delay,
-                "request_interval": request_interval,
-                "cache_ttl": cache_ttl,
-                "enable_cache": enable_cache,
-            },
-        )
 
     # ---------------------------------------------------------------------
     # 天天基金（东方财富）基金经理任职信息（用于任期/任职回报）
@@ -304,10 +294,6 @@ class AkShareClient:
         elapsed = time.time() - self._last_request_time
         if elapsed < self.request_interval:
             wait_time = self.request_interval - elapsed
-            self.logger.debug(
-                f"Rate limiting: waiting {wait_time:.2f}s",
-                extra={"elapsed": elapsed, "wait_time": wait_time},
-            )
             await asyncio.sleep(wait_time)
         self._last_request_time = time.time()
     
@@ -353,22 +339,10 @@ class AkShareClient:
                 # 缓存未过期，命中
                 self._cache_hits += 1
                 metrics.record_cache_hit(cache_type)
-                self.logger.debug(
-                    f"Cache hit for {cache_key}",
-                    extra={
-                        "cache_key": cache_key,
-                        "cache_hits": self._cache_hits,
-                        "cache_misses": self._cache_misses,
-                    },
-                )
                 return data
             else:
                 # 缓存已过期，删除
                 del self._cache[cache_key]
-                self.logger.debug(
-                    f"Cache expired for {cache_key}",
-                    extra={"cache_key": cache_key},
-                )
         
         # 缓存未命中
         self._cache_misses += 1
@@ -387,10 +361,6 @@ class AkShareClient:
         
         expire_time = time.time() + self.cache_ttl
         self._cache[cache_key] = (data, expire_time)
-        self.logger.debug(
-            f"Cached data for {cache_key}",
-            extra={"cache_key": cache_key, "expire_time": expire_time},
-        )
     
     async def _retry_call(
         self,
@@ -428,16 +398,6 @@ class AkShareClient:
                 await self._rate_limit()
                 
                 # 在线程池中执行同步的 AkShare 调用
-                self.logger.debug(
-                    f"Calling {func_name} (attempt {attempt + 1}/{self.max_retries})",
-                    extra={
-                        "func": func_name,
-                        "func_args": str(args),
-                        "func_kwargs": str(kwargs),
-                        "attempt": attempt + 1,
-                    },
-                )
-                
                 result = await asyncio.to_thread(func, *args, **kwargs)
                 
                 # 成功：将 DataFrame 转换为字典列表
@@ -473,10 +433,6 @@ class AkShareClient:
                 # 如果还有重试机会，则等待后重试
                 if attempt < self.max_retries - 1:
                     delay = self.retry_delay * (2 ** attempt)
-                    self.logger.debug(
-                        f"Retrying after {delay}s",
-                        extra={"delay": delay, "next_attempt": attempt + 2},
-                    )
                     await asyncio.sleep(delay)
                 else:
                     # 所有重试都失败
@@ -827,12 +783,9 @@ class AkShareClient:
         if result.get("ok") and isinstance(result.get("data"), list):
             try:
                 result["data"] = self._filter_nav_records_by_period(result["data"], period)
-            except Exception as e:
-                # 裁剪失败不影响主流程，仅记录 debug
-                self.logger.debug(
-                    "nav_data period filter failed",
-                    extra={"symbol": symbol, "period": period, "error": str(e)},
-                )
+            except Exception:
+                # 裁剪失败不影响主流程，静默降级返回原始数据
+                pass
 
         # 如果成功，存入缓存
         if result.get("ok"):

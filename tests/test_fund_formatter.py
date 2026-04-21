@@ -859,8 +859,7 @@ class TestFormatStandardDetailTable:
         assert fee_row is not None
         assert (
             fee_row["内容"]
-            == "费率方面：管理费0.6%/年，托管费0.2%/年，销售服务费0.4%/年；"
-               "持有7天内赎回收取1.5%费用，持有7-30天收取0.75%费用，持有30天以上免收赎回费。"
+            == "费率方面：管理费 0.6%/年，托管费 0.2%/年；赎回费：7日内 1.5%，7日-1年 0.75%，1-2年 暂无数据"
         )
 
     def test_fee_field_compatible_with_akshare_detail_schema(self):
@@ -894,8 +893,40 @@ class TestFormatStandardDetailTable:
         assert fee_row["内容"] != "-"
         assert (
             fee_row["内容"]
-            == "费率方面：管理费0.9%/年，托管费0.2%/年，销售服务费0.4%/年；"
-               "持有7天内赎回收取1.5%费用，持有7-30天收取0.75%费用，持有30天以上免收赎回费。"
+            == "费率方面：管理费 0.9%/年，托管费 0.2%/年；赎回费：7日内 1.5%，7日-1年 0.75%，1-2年 暂无数据"
+        )
+
+    def test_fee_field_decimal_day_range_repro(self):
+        """复现生产问题：赎回分段为 0.0天<持有期限<7.0天 等格式。"""
+        fund = {
+            "symbol": "000008",
+            "basic_info": {
+                "ok": True,
+                "data": [
+                    {"item": "基金代码", "value": "000008"},
+                    {"item": "基金简称", "value": "测试基金"},
+                ],
+            },
+            "detail_info": {
+                "ok": True,
+                "data": [
+                    {"费用类型": "其他费用", "条件或名称": "基金管理费", "费率": "1.2"},
+                    {"费用类型": "其他费用", "条件或名称": "基金托管费", "费率": "0.2"},
+                    {"费用类型": "赎回费", "条件或名称": "0.0天<持有期限<7.0天", "费率": "1.5"},
+                    {"费用类型": "赎回费", "条件或名称": "7.0天<持有期限<365.0天", "费率": "0.5"},
+                    {"费用类型": "赎回费", "条件或名称": "365.0天<持有期限<730.0天", "费率": "0.25"},
+                ],
+            },
+        }
+
+        table = format_standard_14_fields_table(fund)
+        assert table is not None
+        rows = table["table"]["rows"]
+        fee_row = next((r for r in rows if r.get("字段") == "费率"), None)
+        assert fee_row is not None
+        assert (
+            fee_row["内容"]
+            == "费率方面：管理费 1.2%/年，托管费 0.2%/年；赎回费：7日内 1.5%，7日-1年 0.5%，1-2年 0.25%"
         )
 
 
