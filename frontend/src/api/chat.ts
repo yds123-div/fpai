@@ -39,6 +39,7 @@ export interface SessionMessageItem {
   role: 'user' | 'assistant'
   content_summary: string
   full_content?: string | null
+  structured_outputs?: unknown[] | null
   answer_id?: string | null
   citation_count?: number
   created_at?: string

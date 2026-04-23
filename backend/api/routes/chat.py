@@ -388,7 +388,7 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
         preview = ""
         if data["answerBlocks"]:
             preview = str(data["answerBlocks"][0] or "")[:2000]
-        append_message(session_id, "assistant", preview, answer_id=result.answer_id, citation_count=len(data["citations"]), full_content=result.raw_reply or None)
+        append_message(session_id, "assistant", preview, answer_id=result.answer_id, citation_count=len(data["citations"]), full_content=result.raw_reply or None, structured_outputs=result.structured_outputs or None)
         return data
 
     # 7) 非流式
@@ -541,8 +541,7 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
                     preview2 = ""
                     if data["answerBlocks"]:
                         preview2 = (result.raw_reply or str(data["answerBlocks"][0] or ""))[:2000]
-                    append_message(session_id, "assistant", preview2, answer_id=result.answer_id, citation_count=len(data["citations"]), full_content=result.raw_reply or None)
-
+                    append_message(session_id, "assistant", preview2, answer_id=result.answer_id, citation_count=len(data["citations"]), full_content=result.raw_reply or None, structured_outputs=result.structured_outputs or None)
                     # done/citation 统一在此处发
                     if data.get("structuredOutputs"):
                         structured_emitted_at = time.perf_counter()

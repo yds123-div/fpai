@@ -204,6 +204,7 @@ def append_message(
     answer_id: str | None = None,
     citation_count: int = 0,
     full_content: str | None = None,
+    structured_outputs: list[dict[str, Any]] | None = None,
 ) -> bool:
     """持久化一条消息到 MySQL messages 表；并续期 Redis 会话 TTL。"""
     session_id = (session_id or "").strip()
@@ -228,10 +229,12 @@ def append_message(
             if not conn:
                 return False
             with conn.cursor() as cur:
+                import json as _json
+                so_json = _json.dumps(structured_outputs) if structured_outputs else None
                 cur.execute(
-                    """INSERT INTO messages (session_id, role, content_summary, full_content, answer_id, citation_count)
-                       VALUES (%s, %s, %s, %s, %s, %s)""",
-                    (session_id, role, content_summary, full_content or None, answer_id or None, max(0, citation_count)),
+                    """INSERT INTO messages (session_id, role, content_summary, full_content, structured_outputs, answer_id, citation_count)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                    (session_id, role, content_summary, full_content or None, so_json, answer_id or None, max(0, citation_count)),
                 )
         session_context_refresh(session_id, ttl_seconds=DEFAULT_SESSION_TTL)
         return True
@@ -264,20 +267,29 @@ def get_recent_messages(session_id: str, limit: int = 20) -> list[dict[str, Any]
                 return []
             with conn.cursor() as cur:
                 cur.execute(
-                    """SELECT role, content_summary, full_content, answer_id, citation_count, created_at
+                    """SELECT role, content_summary, full_content, structured_outputs, answer_id, citation_count, created_at
                        FROM messages WHERE session_id = %s ORDER BY created_at DESC LIMIT %s""",
                     (session_id, limit),
                 )
                 rows = cur.fetchall()
         out = []
         for row in rows:
-            created = row[5]
+            created = row[6]
+            so_raw = row[3]
+            so_parsed = None
+            if so_raw:
+                try:
+                    import json as _json
+                    so_parsed = _json.loads(so_raw) if isinstance(so_raw, str) else so_raw
+                except Exception:
+                    so_parsed = None
             out.append({
                 "role": row[0] or "user",
                 "content_summary": row[1] or "",
                 "full_content": row[2],
-                "answer_id": row[3],
-                "citation_count": row[4] or 0,
+                "structured_outputs": so_parsed,
+                "answer_id": row[4],
+                "citation_count": row[5] or 0,
                 "created_at": created.isoformat() if hasattr(created, "isoformat") else str(created),
             })
         return out

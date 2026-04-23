@@ -277,12 +277,16 @@ async function restoreSession() {
         const content = String(it.full_content || it.content_summary || '')
         if (it.role === 'assistant') {
           const { answer, thinking } = splitThink(content)
+          const structured = extractStructuredOutput(it.structured_outputs)
+          const parsedFromText = structured ? null : parseFundAnalysis(answer)
+          const fundAnalysis = structured || parsedFromText
           return {
             id: it.answer_id || `hist-${idx}`,
             role: 'assistant',
             content: answer,
             thinking,
             answerId: it.answer_id || undefined,
+            fundAnalysis,
           }
         }
         return { id: `hist-${idx}`, role: 'user', content }
