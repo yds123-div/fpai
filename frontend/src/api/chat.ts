@@ -35,6 +35,34 @@ export async function postChatNonStream(body: Record<string, unknown>): Promise<
   return res.data ?? res
 }
 
+export interface SessionMessageItem {
+  role: 'user' | 'assistant'
+  content_summary: string
+  full_content?: string | null
+  answer_id?: string | null
+  citation_count?: number
+  created_at?: string
+}
+
+export interface SessionMessagesData {
+  sessionId: string
+  items: SessionMessageItem[]
+}
+
+/**
+ * 获取会话历史消息（按时间升序），用于页面刷新后恢复对话。
+ * 会话不存在时抛出错误，调用方可据此清理本地缓存的 sessionId。
+ */
+export async function getSessionMessages(sessionId: string, limit = 50): Promise<SessionMessagesData> {
+  const res = await request.get<SessionMessagesData>(`/sessions/${encodeURIComponent(sessionId)}/messages`, {
+    params: { limit },
+  })
+  if (res.code !== 200) {
+    throw new Error((res.message as string) || '请求失败')
+  }
+  return (res.data as SessionMessagesData) ?? { sessionId, items: [] }
+}
+
 /**
  * 流式发送（SSE）：通过 onMessage/onCitation/onStatus/onDone/onError 回调推送
  */
@@ -84,7 +112,7 @@ export function postChatStream(
           } else if (line === '' && currentEvent && currentData) {
             try {
               const data = JSON.parse(currentData) as unknown
-              if (currentEvent === 'message') onMessage?.(data)
+              if (currentEvent === 'message' || currentEvent === 'message_delta') onMessage?.(data)
               else if (currentEvent === 'citation') onCitation?.(data)
               else if (currentEvent === 'status') onStatus?.(data as { stage?: string; message?: string })
               else if (currentEvent === 'done') {

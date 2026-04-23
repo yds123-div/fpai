@@ -203,6 +203,7 @@ def append_message(
     *,
     answer_id: str | None = None,
     citation_count: int = 0,
+    full_content: str | None = None,
 ) -> bool:
     """持久化一条消息到 MySQL messages 表；并续期 Redis 会话 TTL。"""
     session_id = (session_id or "").strip()
@@ -213,6 +214,12 @@ def append_message(
         role = "user"
     content_summary = (content_summary or "")[:2000]
     if not mysql_configured():
+        logger.warning(
+            "[RCA][session] append_message skipped mysql persistence: mysql not configured, session_id=%s, role=%s, answer_id=%s",
+            session_id[:8],
+            role,
+            (answer_id or "")[:8],
+        )
         session_context_refresh(session_id, ttl_seconds=DEFAULT_SESSION_TTL)
         return True
     try:
@@ -222,9 +229,9 @@ def append_message(
                 return False
             with conn.cursor() as cur:
                 cur.execute(
-                    """INSERT INTO messages (session_id, role, content_summary, answer_id, citation_count)
-                       VALUES (%s, %s, %s, %s, %s)""",
-                    (session_id, role, content_summary, answer_id or None, max(0, citation_count)),
+                    """INSERT INTO messages (session_id, role, content_summary, full_content, answer_id, citation_count)
+                       VALUES (%s, %s, %s, %s, %s, %s)""",
+                    (session_id, role, content_summary, full_content or None, answer_id or None, max(0, citation_count)),
                 )
         session_context_refresh(session_id, ttl_seconds=DEFAULT_SESSION_TTL)
         return True
@@ -241,7 +248,14 @@ def get_recent_messages(session_id: str, limit: int = 20) -> list[dict[str, Any]
         list of {role, content_summary, answer_id, citation_count, created_at}
     """
     session_id = (session_id or "").strip()
-    if not session_id or not mysql_configured():
+    if not session_id:
+        return []
+    if not mysql_configured():
+        logger.warning(
+            "[RCA][session] get_recent_messages returns empty: mysql not configured, session_id=%s, limit=%s",
+            session_id[:8],
+            limit,
+        )
         return []
     limit = max(1, min(limit, 100))
     try:
@@ -250,19 +264,20 @@ def get_recent_messages(session_id: str, limit: int = 20) -> list[dict[str, Any]
                 return []
             with conn.cursor() as cur:
                 cur.execute(
-                    """SELECT role, content_summary, answer_id, citation_count, created_at
+                    """SELECT role, content_summary, full_content, answer_id, citation_count, created_at
                        FROM messages WHERE session_id = %s ORDER BY created_at DESC LIMIT %s""",
                     (session_id, limit),
                 )
                 rows = cur.fetchall()
         out = []
         for row in rows:
-            created = row[4]
+            created = row[5]
             out.append({
                 "role": row[0] or "user",
                 "content_summary": row[1] or "",
-                "answer_id": row[2],
-                "citation_count": row[3] or 0,
+                "full_content": row[2],
+                "answer_id": row[3],
+                "citation_count": row[4] or 0,
                 "created_at": created.isoformat() if hasattr(created, "isoformat") else str(created),
             })
         return out

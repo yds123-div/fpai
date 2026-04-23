@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+import time
 from typing import Any
 
 from agents.fund_agent.runtime import (
@@ -125,6 +126,7 @@ class ProductQueryAgent(BaseBusinessAgent):
         )
 
         try:
+            t_llm_start = time.perf_counter()
             await _emit_progress(ctx, "llm_generating")
             reply_text = await _llm_call_maybe_stream(
                 ctx=ctx,
@@ -133,10 +135,21 @@ class ProductQueryAgent(BaseBusinessAgent):
                     {"role": "user", "content": user_prompt},
                 ],
             )
+            logger.info(
+                "[STRUCT_DEBUG][product_query] llm_done elapsed=%.3fs reply_len=%d",
+                time.perf_counter() - t_llm_start,
+                len(reply_text or ""),
+            )
             try:
                 from pkg.fund_formatter import build_single_output
 
+                t_struct_start = time.perf_counter()
                 ctx.structured_outputs = [build_single_output(supplier_data, reply_text)]
+                logger.info(
+                    "[STRUCT_DEBUG][product_query] structured_ready elapsed=%.3fs count=%d",
+                    time.perf_counter() - t_struct_start,
+                    len(ctx.structured_outputs or []),
+                )
             except Exception:
                 ctx.structured_outputs = None
             return reply_text

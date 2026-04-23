@@ -59,8 +59,8 @@
   - `productIds`：string[]，可选，本会话已选产品
   - `customerProfile`：object，可选，客户画像（风险偏好、期限、流动性等）
   - `stream`：boolean，是否流式返回，默认 true（SSE）
-- **响应（非流式）**：`data` 含 `answerId`、`answerBlocks[]`、`citations[]`、`compliance`、`trace`（见 architecture 契约）；可选 `suggestedQuestions[]`（猜你想问/洞察智能体输出，字符串数组）。
-- **响应（流式）**：通过 SSE 推送；事件类型建议 `message`（文本块）、`citation`（引用块）、`done`（结束，含 answerId、trace、可选 suggestedQuestions[]）、`error`（错误）。
+- **响应（非流式）**：`data` 含 `answerId`、`answerBlocks[]`、`citations[]`、`compliance`、`trace`（见 architecture 契约）；可选 `suggestedQuestions[]`（猜你想问/洞察智能体输出，字符串数组）与 `structuredOutputs[]`（结构化结果）。
+- **响应（流式）**：通过 SSE 推送；当前事件类型为 `message_start`、`message_delta`、`status`、`structured_update`、`citation`、`done`、`error`。其中 `done` 事件包含 `answerId`、`trace`、可选 `suggestedQuestions[]` 与 `structuredOutputs[]`（最终兜底）。
 
 #### POST /api/v1/compare
 
@@ -95,15 +95,23 @@
 
 - **SSE（推荐用于 chat/report 流式）**
   - Content-Type: `text/event-stream`；事件格式：`event: <type>\ndata: <JSON>\n\n`。
-  - 类型：`message`（内容块）、`citation`（引用）、`done`（含 answerId、trace）、`error`（含 code、message）。
+  - 类型：
+    - `message_start`：本轮回答开始（含 sessionId/answerId）
+    - `message_delta`：正文增量 token/分片
+    - `status`：阶段进度（如 accepted/planning/generating/compliance）
+    - `structured_update`：结构化结果提前推送
+    - `citation`：引用片段
+    - `done`：结束（含 answerId、trace、suggestedQuestions、structuredOutputs）
+    - `error`：错误（含 code、message）
+  - 兼容约定：即使已推送 `structured_update`，`done` 中仍回传 `structuredOutputs[]` 作为兜底。
   - 前端需支持断线重连与 `X-Request-Id` 幂等（可选）。
 - **WebSocket（可选，用于双向实时）**
   - 连接后鉴权（如 query 携带 token 或首帧 auth）；消息格式 JSON：`{ "type": "chat"|"ping"|..., "payload": { ... } }`；服务端推送类型与 SSE 对齐，便于前端统一处理。
 - 详细帧格式与错误码在实现时可在本段下追加或单独 `api_contract.md`。
 
-### 2.5 核心应用场景与智能体/能力映射（与 architecture、AgentScope 对齐）
+### 2.5 核心应用场景与智能体/能力映射（与 architecture 对齐）
 
-以下确保「Agent Runtime 及内置智能体」每一类应用场景在 API 与能力注册中有明确落地。**采用 AgentScope 时**：意图识别结果作为**上下文或候选工具集**注入，**由 AgentScope 的 ReAct/工具推理或 MsgHub 在运行时决定**调用哪些能力、以何种顺序协作；下表为**可用能力与典型意图的对应**，用于向 AgentScope 注册工具、设计提示或约束候选集，而非强制查表路由。审计记录“实际被调用的工具/能力”（由框架推理产生）。
+以下确保「Agent Runtime 及内置智能体」每一类应用场景在 API 与能力注册中有明确落地。当前实现采用**基金专项编排内核（FundAgentRouter + Coordinator）**：先由 Coordinator 规划任务，再按任务类型路由到业务 Agent 执行；多任务时支持并行执行与融合。下表描述的是可用能力与典型意图对应，用于能力注册、提示约束与审计说明。
 
 | 应用场景（能力/智能体） | 意图标识建议 | 依赖能力 | 前端入口 | 说明 |
 |-------------------|--------------|----------|----------|------|
@@ -119,7 +127,7 @@
 | 智能图谱构建 | （二期） | — | — | 一期保留扩展点，不实现 |
 | 扩展智能体 | 配置化 intent_id | 按注册表与路由配置 | 通过 /chat 或专用路径由编排器路由 | 插件注册表 + 配置驱动路由 |
 
-- **Chat 与 AgentScope 编排**：`POST /chat` 请求进入后，Intent & Slot Service 产出意图与槽位；**将意图与槽位作为上下文或候选工具集传入 AgentScope**，由 ReAct 主智能体或 MsgHub 参与者在运行时**推理**调用上表能力（工具）；会话内的 `productIds`、`customerProfile` 参与槽位填充与权限过滤。可选：仅将“与当前意图相关的工具子集”暴露给 AgentScope 以兼顾合规与延迟。所有输出经 Compliance 审查后返回，并写入 Audit（记录实际调用的工具/能力）。
+- **Chat 与基金专项编排**：`POST /chat` 请求进入后，由 Coordinator 基于用户输入生成任务计划（单任务或多任务）；随后路由到产品查询/解读/对比/其它业务 Agent 执行。会话内 `productIds`、`customerProfile` 与权限上下文参与任务执行与过滤。所有输出经 Compliance 审查后返回，并写入 Audit（记录计划与实际执行能力）。
 - **产品要素抽取**：作为内部能力/工具，由产品解读、产品对比、报告生成在需要时调用（如从说明书/条款中抽期限、费率、风险等）；Ingestion 侧文档入库时也可调用同一套抽取能力做结构化落库。
 
 ---
@@ -131,7 +139,7 @@
 | 技术架构图层 | 实现职责 | 建议代码归属 |
 |--------------|----------|--------------|
 | 前端交互层 | Vue3+Vite+Ant Design Vue，ECharts，SSE/WebSocket 客户端 | 独立前端仓库或 `frontend/` |
-| 多智能体框架 | AgentScope（ReAct、Toolkit、MsgHub）编排；意图/槽位作为上下文或候选工具集，**由框架推理决定**调用哪些能力与协作顺序 | 后端 `orchestrator/`、`agents/` |
+| 多智能体/编排框架 | 基金专项编排：FundAgentRouter + Coordinator（任务规划、路由、并行执行、结果融合） | 后端 `orchestrator/`、`agents/` |
 | 数据适配层 | **全 Python**：业务逻辑、API 层、RAG、解析、模型调用（推荐一期）；或 Python + Go 混合（Go 仅做网关/高并发层，见下文对比） | 后端 `backend/`（单仓 Python） |
 | 数据存储层 | MySQL、Redis、Milvus、MinIO 的接入与封装 | `storage/`、`retrieval/`、`ingestion/` |
 | 模型与文档解析 | LLM/Embedding/Reranker 经 Model Gateway 统一调用；**文档解析与版面识别采用 MinerU 组件**（PDF/图片等版面分析、表格/公式识别、文本抽取），输出结构化文本供分块与向量化 | `model_gateway/`、`parsing/`（MinerU） |
@@ -144,8 +152,8 @@
 ```
 backend/
 ├── api/                    # 对外 HTTP/SSE/WS 入口，鉴权、限流、请求解析
-├── orchestrator/           # 意图识别、槽位抽取、任务编排、智能体选择与执行
-├── agents/                 # 各能力/智能体实现（见下表）；向 AgentScope 注册为 Toolkit 工具或子智能体，**由 AgentScope 推理决定调用组合与顺序**
+├── orchestrator/           # 基金专项编排：Coordinator 任务规划、路由、并行执行、结果融合
+├── agents/                 # 各能力/智能体实现（见下表）；由编排器按任务类型路由调用
 │   ├── faq/                 # FAQ 问答智能体
 │   ├── rag/                 # RAG 智能体（内部调 retrieval）
 │   ├── product_list/       # 产品列表查询智能体
@@ -174,6 +182,7 @@ backend/
 ### 3.3 内部服务接口（应用层内）
 
 - **Orchestrator → Data Access**：按产品 ID/类型、可售权限查询产品要素、行情；接口需带 `userId`、`productPoolIds`。Data Access 对上游暴露**统一领域模型与接口**；内部按机构/数据源通过**适配器**对接各家不同请求体/响应体，见下文「业务数据访问层与多机构适配」。
+- **Products Search 双通道**：产品搜索优先查询本地产品库（支持同步基金数据）；本地无命中时回退到 `data_access.get_data(model_code=products, ...)`。
 - **Orchestrator → Retrieval**：`retrieve(query, filters, topK, permissionContext) → (chunks, scores, citations)`；可选 `generateAnswer(query, chunks) → (answerBlocks, citations)` 由检索服务内调 LLM。
 - **Orchestrator → Compliance**：`checkInput(text, userId) → decision`；`checkOutput(text, structuredOutput, citations) → decision`；返回通过/拒答/改写/补充提示等。
 - **Orchestrator / Agents → Audit**：`appendEvent(answerId, event)` 追加审计事件；查询由 `evidence/{answerId}` 对前端暴露，后端调用 `audit.getEvidence(answerId)`。
@@ -221,6 +230,8 @@ backend/
 | 审计索引（热） | answer_id、session_id、user_id（关联 users.id）、intent、model_version、policy_version、created_at；审计正文或大字段冷分层后存 MinIO 或归档表 |
 
 - **user_id 来源**：本系统维护用户表 `users`（见迁移 002）；用户通过账号+密码登录，登录后会话/请求上下文中的 `userId` 即 `users.id`。各表中 `user_id` 关联 `users.id`，用于归属、审计与权限过滤。可选后续与 SSO/统一身份打通（如同步或联邦）。
+- **当前实现现状**：会话恢复主要依赖消息表 `content_summary`；`structuredOutputs` 已在 chat 返回与 SSE `done` 透传，但未完整持久化到消息存储。后续需补充结构化结果持久化与恢复一致性设计。
+- **当前实现现状**：会话恢复主要依赖消息表 `content_summary`；`structuredOutputs` 已在 chat 返回与 SSE `done` 透传，但未完整持久化到消息存储。后续需补充结构化结果持久化与恢复一致性设计。
 - 具体建表、索引、冷热分层字段与迁移策略在实现阶段按 DBA 规范补充；此处仅约定用途与边界。
 
 ### 4.2 Redis
@@ -267,6 +278,7 @@ backend/
 
 - 日志、指标、链路追踪与 `architecture.md` 一致；`traceId`、`answerId`、`intent`、`modelVersion`、`policyVersion`、`latencyMs`、`cacheHit`、`complianceDecision` 等结构化输出。
 - 检索、重排、生成、合规审查、数据源调用各自打 span，便于定位 P95。
+- 流式事件建议增加专项指标：`message_start` 首包时延、`message_delta` 间隔分布、`structured_update→done` 间隔，用于定位“流式看似卡住”问题。
 
 ### 5.4 配置与版本
 

@@ -9,6 +9,7 @@
 这些文件会在所有对话中自动加载：
 
 - **coding-standards.md** - 编码规范与代码质量标准
+- **execution-discipline.md** - 编码执行纪律（思考、简化、外科修改、目标驱动）
 - **architecture.md** - 架构规则与设计约束
 - **project-context.md** - 项目上下文（技术栈、目录结构、命令）
 - **workflow.md** - AI 软件开发流程
@@ -32,6 +33,7 @@
 | Cursor 文件 | Kiro Steering File | 说明 |
 |-------------|-------------------|------|
 | `.cursor/rules/coding-standards.mdc` | `coding-standards.md` | 编码规范 |
+| `.cursor/rules/execution-discipline.mdc` | `execution-discipline.md` | 编码执行纪律 |
 | `.cursor/rules/architecture.mdc` | `architecture.md` | 架构规则 |
 | `.cursor/rules/workflow.mdc` | `workflow.md` | 开发流程 |
 | `.cursor/rules/plan.mdc` | `workflow.md` | 规划原则（合并到 workflow） |

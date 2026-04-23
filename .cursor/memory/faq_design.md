@@ -58,7 +58,7 @@
 |------|------|------|
 | T016.1 | FAQ 同步：从 MySQL 读取生效 FAQ → Embedding → 写入 Milvus（fpai_faq 或带 source=faq 的 collection） | T004, T008 |
 | T016.2 | FAQ 检索层：query → embed → Milvus TopK → 回表 MySQL 取 answer → 返回 FAQHit 列表 | T016.1, T008 |
-| T016.3 | FAQ 回答：检索 TopK + LLM 基于 FAQ 生成回答；对外 query_faq(question) 与 AgentScope 工具 | T016.2, T008 |
+| T016.3 | FAQ 回答：检索 TopK + LLM 基于 FAQ 生成回答；对外 query_faq(question)，由 Coordinator 编排路由调用 | T016.2, T008 |
 
 以上三部分可在 tasks.md 中合并为 T016 一条，或拆为 T016a/T016b/T016c；实现时保持「入库 → 同步 → 向量检索 → LLM 回答」一条链。
 

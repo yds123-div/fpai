@@ -15,7 +15,7 @@
 | 层级 | 技术 | 版本/说明 |
 |------|------|-----------|
 | **前端** | Vue3、Vite、Ant Design Vue、ECharts | H5 工作台；SSE/WebSocket 流式与实时通信 |
-| **多智能体框架** | AgentScope | [agentscope-ai/agentscope](https://github.com/agentscope-ai/agentscope)，ReAct、Toolkit、MsgHub；Python 3.10+ |
+| **编排与智能体运行** | FundAgentRouter + Coordinator（当前） / AgentScope（历史） | 当前主链路为 Coordinator 任务规划 + 业务 Agent 路由执行；AgentScope 作为历史演进背景保留 |
 | **后端** | **全 Python** | API 层（FastAPI/Starlette 等异步框架）、orchestrator、agents、retrieval、compliance、ingestion、model_gateway；一期不引入 Go，详见 technical_design §3.4 |
 | **关系型数据库** | MySQL | 会话/消息、配置与策略、FAQ、反馈、审计索引 |
 | **缓存与限流** | Redis | 会话上下文、热点缓存、限流、幂等 |
@@ -41,8 +41,8 @@ fpai/
 │   └── package.json
 ├── backend/                 # 后端（一期全 Python 模块化单体；API 层 + 编排 + 智能体 + 检索 + 合规等）
 │   ├── api/                 # 对外 HTTP/SSE/WS 入口，鉴权、限流、请求解析
-│   ├── orchestrator/        # 意图识别、槽位抽取、任务编排、AgentScope 调度
-│   ├── agents/              # 各能力/智能体，向 AgentScope 注册为 Toolkit 或子智能体
+│   ├── orchestrator/        # Coordinator 任务规划、路由、并行执行、结果融合
+│   ├── agents/              # 各业务能力智能体，由编排器按任务类型路由调用
 │   │   ├── faq/
 │   │   ├── rag/
 │   │   ├── product_list/
@@ -77,8 +77,8 @@ fpai/
 - **Base URL**：`/api/v1`
 - **鉴权**：本系统维护用户表，用户账号+密码登录后获得 Token；请求头 `Authorization: Bearer <token>`，业务层解析得到 `userId`（users.id）、`role`、`productPoolIds`。
 - **核心端点**：`POST /auth/login`（账号密码登录）、`GET /auth/me`（当前用户，可选）、`POST /chat`、`POST /compare`、`POST /recommend`、`POST /report/generate`、`GET /evidence/{answerId}`、`POST /feedback`、`GET /products/search`、`GET /sessions/{sessionId}`、`POST /sessions`。
-- **统一响应**：`code`、`message`、`data`；`data` 内含 `answerBlocks[]`、`citations[]`、`compliance`、`trace`、可选 `suggestedQuestions[]`。
-- **流式**：SSE 事件类型 `message`、`citation`、`done`、`error`；详见 `technical_design.md` §2。
+- **统一响应**：`code`、`message`、`data`；`data` 内含 `answerBlocks[]`、`citations[]`、`compliance`、`trace`、可选 `suggestedQuestions[]`、`structuredOutputs[]`。
+- **流式**：SSE 事件类型 `message_start`、`message_delta`、`status`、`structured_update`、`citation`、`done`、`error`；详见 `technical_design.md` §2。
 
 ---
 
@@ -104,7 +104,8 @@ fpai/
 
 ## 约定
 
-- **大模型调用**：智能体内需调用大模型时，统一通过 **AgentScope 的 ReActAgent（ReAgent）** 模式：实例化 `ReActAgent`（`model` 由 `model_gateway.config` 的 base_url/api_key 选用 OpenAIChatModel 或 DashScopeChatModel），无工具时使用空 `Toolkit()`，通过 `agent(Msg(...))` 获取回复；不再在智能体内部直接调用 `model_gateway.llm_chat`。model_gateway 仍可用于非 Agent 场景（如合规审查）；检索服务 generate_answer 优先 ReAgent，不可用时回退 llm_chat。
+- **编排约定（当前）**：聊天主链路使用 `FundAgentRouter + Coordinator`。Coordinator 负责任务规划（单任务/多任务），并按任务类型路由到业务 Agent；多任务可并行执行并融合结果。
+- **大模型调用**：业务 Agent 内优先通过统一运行时封装调用模型（支持流式 token 回调与进度回调）；`model_gateway` 仍用于非 Agent 场景（如合规审查）与基础模型能力封装。
 - **分支策略**：`main` 保护；功能开发使用 `feature/*` 或 `feat/xxx`，修复使用 `fix/xxx`；发布标签 `v*`。
 - **提交规范**：建议 Conventional Commits（`feat:`、`fix:`、`docs:`、`refactor:` 等），便于生成变更日志。
 - **环境变量**：敏感配置（DB 连接串、Redis、Milvus、MinIO、模型 API 地址/密钥、SSO 配置）使用环境变量，不提交 `.env`；提供 `.env.example` 列出键名与说明。
@@ -119,7 +120,7 @@ fpai/
 | `prd.md` | 产品需求、用户故事、功能/非功能需求、成功指标 |
 | `architecture.md` | 系统架构、组件、数据存储、部署、意图与能力映射、自检清单 |
 | `technical_design.md` | API 契约、模块结构、数据模型与存储约定、内部接口、核心应用场景与能力映射 |
-| `decisions.md` | 技术决策（S1/S2/S3、MySQL、MinIO、AgentScope、API 约定等） |
+| `decisions.md` | 技术决策（S1/S2/S3、MySQL、MinIO、编排内核演进、SSE 契约、API 约定等） |
 | `tasks.md` | 任务拆解与执行状态（由 generate-tasks 产出并维护） |
 
 ---

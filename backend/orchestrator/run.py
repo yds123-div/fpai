@@ -23,11 +23,16 @@ logger = get_logger(__name__)
 def _format_multi_task_response(
     parts: list[dict[str, Any]],
     final_instruction: str | None = None,
+    *,
+    show_thinking: bool = False,
 ) -> str:
     """
     直接格式化拼接多任务结果，不调用LLM合并。
     
     格式：【子问题：xxx】\n回答内容\n\n【子问题：yyy】\n回答内容
+
+    Args:
+        show_thinking: 若为 True，则保留模型 <think>...</think> 推理块，供前端折叠展示。
     """
     if not parts:
         return ""
@@ -39,14 +44,14 @@ def _format_multi_task_response(
         sections.append(final_instruction.strip())
         sections.append("")
     
+    import re
     for part in parts:
         tp = part.get("type", "")
         question = part.get("question", "")
         text = (part.get("text") or "").strip()
         
-        # 清理think块
-        import re
-        text = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE)
+        if not show_thinking:
+            text = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE)
         text = text.strip()
         
         # 子问题标题
@@ -60,7 +65,6 @@ def _format_multi_task_response(
         
         sections.append("")  # 空行分隔
     
-    # 清理多余空行
     result = "\n".join(sections)
     result = re.sub(r"\n{3,}", "\n\n", result)
     return result.strip()
@@ -78,6 +82,7 @@ class ChatTurnResult:
     intent: str = ""
     slots: dict[str, Any] = field(default_factory=dict)
     structured_outputs: list[dict[str, Any]] = field(default_factory=list)
+    raw_reply: str = ""  # 剥离 <think> 前的原始文本，用于持久化
 
 
 def _strip_think_blocks(text: str, *, show_thinking: bool = False) -> str:
@@ -418,7 +423,7 @@ async def run_chat_turn_async(
             await _progress("final_composing", message="正在整合结果...")
             # 直接格式化拼接，不调用LLM合并
             final_inst = (plan.get("final_instruction") or "").strip()
-            reply_text = _format_multi_task_response(parts, final_inst)
+            reply_text = _format_multi_task_response(parts, final_inst, show_thinking=bool(show_thinking))
 
         # 删除 FAQ 那套路由：不再回退到 AgentScope Router/Toolkit（faq_query/product_list_query 等）
         # 统一回退到 5-Agent 的 OtherAgent（优先外部知识库检索，查不到再自由回答）
@@ -438,6 +443,7 @@ async def run_chat_turn_async(
     if not reply_text:
         reply_text = "当前无法生成回复，请稍后重试或换一种方式提问。"
     else:
+        result.raw_reply = reply_text  # 保存剥离前的原始文本（含 <think>）
         reply_text = _strip_think_blocks(reply_text, show_thinking=bool(show_thinking))
 
     # 结构化输出：由业务 agent 写入 ctx_obj.structured_outputs，这里统一透传给 API（SSE done / 非流式 JSON）

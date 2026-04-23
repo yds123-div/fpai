@@ -289,6 +289,68 @@ async def get_session_detail(session_id: str, user_id: str = Depends(get_current
     return JSONResponse(status_code=200, content=envelope(code=ErrorCode.OK, message="ok", data=session))
 
 
+@router.get("/sessions/{session_id}/messages")
+async def get_session_messages(
+    session_id: str,
+    limit: int = 50,
+    user_id: str = Depends(get_current_user_id),
+):
+    """获取会话历史消息（按时间升序），用于页面刷新后恢复对话上下文。
+
+    仅当前用户所属的会话可查；会话不存在返回 SESSION_NOT_FOUND。
+    """
+    session_id = (session_id or "").strip()
+    if not session_id:
+        return JSONResponse(
+            status_code=200,
+            content=envelope(code=ErrorCode.VALIDATION_ERROR, message="sessionId 不能为空", data=None),
+        )
+    try:
+        from orchestrator.session import get_session, get_recent_messages
+        session = get_session(session_id)
+    except Exception:
+        return JSONResponse(
+            status_code=200,
+            content=envelope(code=ErrorCode.INTERNAL_ERROR, message=message_for(ErrorCode.INTERNAL_ERROR), data=None),
+        )
+    if not session:
+        return JSONResponse(
+            status_code=200,
+            content=envelope(code=ErrorCode.SESSION_NOT_FOUND, message=message_for(ErrorCode.SESSION_NOT_FOUND), data=None),
+        )
+    if (session.get("user_id") or "") != (user_id or ""):
+        return JSONResponse(
+            status_code=200,
+            content=envelope(code=ErrorCode.SESSION_NOT_FOUND, message=message_for(ErrorCode.SESSION_NOT_FOUND), data=None),
+        )
+    try:
+        lim = max(1, min(int(limit or 50), 100))
+        rows = get_recent_messages(session_id, limit=lim) or []
+    except Exception:
+        rows = []
+    # === RCA 埋点：定位“刷新后对话消失” ===
+    try:
+        from pkg.mysql_client import is_configured as _mysql_is_configured
+        from pkg.logger import get_logger as _get_logger
+        _rca_log = _get_logger(__name__)
+        if not rows:
+            _rca_log.warning(
+                "[RCA][sessions/messages] empty history response: session_id=%s, user_id=%s, mysql_configured=%s, requested_limit=%s",
+                session_id[:8],
+                (user_id or "")[:8],
+                _mysql_is_configured(),
+                limit,
+            )
+    except Exception:
+        pass
+    # get_recent_messages 是按 created_at 倒序返回，这里翻转为正序以便前端按顺序渲染
+    items = list(reversed(rows))
+    return JSONResponse(
+        status_code=200,
+        content=envelope(code=ErrorCode.OK, message="ok", data={"sessionId": session_id, "items": items}),
+    )
+
+
 @router.post("/sessions")
 async def create_session_api(user_id: str = Depends(get_current_user_id)):
     """创建会话；返回 data 含 sessionId（即 id）。"""

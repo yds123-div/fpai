@@ -8,6 +8,13 @@
 - **S2 性能/安全**：输入/输出长度与频率限制；LLM 审查超时与熔断与 model_gateway 一致。
 - **S3 可维护性**：LLM 审查 prompt 抽成常量或配置；审查结果写入审计（与 T012 对接）。
 
+### 0.1 与当前实现对齐（as-is）
+
+- 聊天主链路为 `FundAgentRouter + Coordinator`，合规改进需兼容“单任务/多任务并行融合”两种执行形态。
+- chat SSE 当前事件为 `message_start`、`message_delta`、`status`、`structured_update`、`citation`、`done`、`error`；合规相关状态建议通过 `status` 暴露，不新增破坏性事件类型。
+- `structuredOutputs[]` 已在 chat 返回和 `done` 事件透传；合规对输出文本和结构化结果的审查策略应同时覆盖两者（见 §2.1 输出长度与 §3.2 审计落库）。
+- 会话恢复当前依赖 `content_summary`；合规审查结果若影响结构化输出展示，应在审计中明确记录决策与版本，避免刷新后解释不一致。
+
 ---
 
 ## 一、S1：策略来源可插拔与 T014 从 MySQL 加载
@@ -110,6 +117,15 @@
 | **写入内容** | `answerId`、`policy_version`、`complianceDecision`（如 action、reason、suggestion；可存 to_dict() 或精简字段）。 |
 | **写入时机** | 输出审查完成后，由编排层或合规层调用 `audit.appendEvent(answerId, event)`；event 中 type 如 `compliance_result`，payload 含 policy_version、decision。 |
 | **依赖** | T012 审计服务需提供 `appendEvent(answerId, event)` 或等价接口；compliance 仅返回 decision，由编排层统一落库，或 compliance 接受可选 `audit_callback` 在通过/拒答后回写。 |
+
+### 3.3 与 SSE 和结构化输出的协同约束
+
+| 项 | 说明 |
+|----|------|
+| **状态事件** | 当进入输入审查/输出审查时，编排层可通过 `status` 事件提示（例如 `compliance_checking`、`compliance_final`），不改变既有前端事件消费模型。 |
+| **structuredOutputs 一致性** | 若输出审查触发改写/拒答，需保证 `answerBlocks` 与 `structuredOutputs` 语义一致；必要时清空或重建不合规的结构化片段，避免前端“文本已拒答但图表仍展示原内容”。 |
+| **done 兜底** | 即使中途存在 `structured_update`，最终 `done` 仍应回传经过合规处理后的 `structuredOutputs[]`，作为单一可信结果。 |
+| **追溯性** | 审计中需关联 `answerId`、`policy_version`、`decision`、是否改写结构化结果，便于排查“展示与审查不一致”问题。 |
 
 ---
 

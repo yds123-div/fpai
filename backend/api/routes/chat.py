@@ -388,7 +388,7 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
         preview = ""
         if data["answerBlocks"]:
             preview = str(data["answerBlocks"][0] or "")[:2000]
-        append_message(session_id, "assistant", preview, answer_id=result.answer_id, citation_count=len(data["citations"]))
+        append_message(session_id, "assistant", preview, answer_id=result.answer_id, citation_count=len(data["citations"]), full_content=result.raw_reply or None)
         return data
 
     # 7) 非流式
@@ -413,6 +413,9 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
     # 8) 流式 SSE（当前实现为“结果完成后分块推送”，后续可替换为真正流式生成）
     async def event_gen() -> AsyncGenerator[bytes, None]:
         try:
+            stream_started_at = time.perf_counter()
+            last_message_delta_at: float | None = None
+            structured_emitted_at: float | None = None
             # 若传入 model_id 且模型配置含 base_url，则走 OpenAI 兼容“真正流式”直连模式
             base_url_override: str | None = None
             api_key_override: str | None = None
@@ -433,6 +436,12 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
                 answer_id = uuid.uuid4().hex
                 streaming_text = ""
                 openai_messages = _build_openai_messages_from_history(session_id, msg, limit=12)
+                logger.info(
+                    "[SSE_DEBUG][%s] emit message_start t=%.3fs mode=direct_stream",
+                    answer_id[:8],
+                    time.perf_counter() - stream_started_at,
+                )
+                yield _sse_event("message_start", {"sessionId": session_id, "answerId": answer_id}).encode("utf-8")
                 async for t in _stream_openai_chat(
                     base_url=base_url_override,
                     api_key=api_key_override,
@@ -440,11 +449,12 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
                     messages=openai_messages,
                 ):
                     streaming_text += t
-                    yield _sse_event("message", {"text": t}).encode("utf-8")
+                    last_message_delta_at = time.perf_counter()
+                    yield _sse_event("message_delta", {"sessionId": session_id, "answerId": answer_id, "text": t}).encode("utf-8")
                     await asyncio.sleep(0)
 
                 preview = (streaming_text or "")[:2000]
-                append_message(session_id, "assistant", preview, answer_id=answer_id, citation_count=0)
+                append_message(session_id, "assistant", preview, answer_id=answer_id, citation_count=0, full_content=streaming_text or None)
                 yield _sse_event(
                     "done",
                     {
@@ -455,6 +465,12 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
                         "compliance": {"action": "pass"},
                     },
                 ).encode("utf-8")
+                logger.info(
+                    "[SSE_DEBUG][%s] emit done t=%.3fs last_delta_gap=%.3fs",
+                    answer_id[:8],
+                    time.perf_counter() - stream_started_at,
+                    (time.perf_counter() - last_message_delta_at) if last_message_delta_at else -1.0,
+                )
             else:
                 # 编排器（带进度事件 + 可选 token 级流式输出）
                 q: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
@@ -469,7 +485,7 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
 
                 async def _stream_token(t: str):
                     # 仅推送增量 token
-                    await _emit("message", {"text": t})
+                    await _emit("message_delta", {"text": t})
 
                 async def _runner():
                     # 若传入 model_id，则从 MySQL 读取模型配置（base_url/api_key/model_name），用于本轮覆盖
@@ -487,7 +503,9 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
                                 model_name_ov = (cfg2.get("model_name") or "").strip() or model_name_ov
                         except Exception:
                             pass
+                    stream_answer_id = uuid.uuid4().hex
                     await _progress("accepted")
+                    await _emit("message_start", {"sessionId": session_id, "answerId": stream_answer_id})
                     result = await run_chat_turn_async(
                         msg,
                         session_id=session_id,
@@ -503,6 +521,7 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
                         show_thinking=bool(body.showThinking),
                         progress_callback=_progress,
                         stream_callback=_stream_token,
+                        answer_id=stream_answer_id,
                     )
                     data = {
                         "sessionId": session_id,
@@ -521,10 +540,26 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
                         pass
                     preview2 = ""
                     if data["answerBlocks"]:
-                        preview2 = str(data["answerBlocks"][0] or "")[:2000]
-                    append_message(session_id, "assistant", preview2, answer_id=result.answer_id, citation_count=len(data["citations"]))
+                        preview2 = (result.raw_reply or str(data["answerBlocks"][0] or ""))[:2000]
+                    append_message(session_id, "assistant", preview2, answer_id=result.answer_id, citation_count=len(data["citations"]), full_content=result.raw_reply or None)
 
                     # done/citation 统一在此处发
+                    if data.get("structuredOutputs"):
+                        structured_emitted_at = time.perf_counter()
+                        logger.info(
+                            "[SSE_DEBUG][%s] queue structured_update t=%.3fs structured_count=%d",
+                            str(data.get("answerId") or "")[:8],
+                            structured_emitted_at - stream_started_at,
+                            len(data.get("structuredOutputs") or []),
+                        )
+                        await _emit(
+                            "structured_update",
+                            {
+                                "sessionId": data.get("sessionId"),
+                                "answerId": data.get("answerId"),
+                                "structuredOutputs": data.get("structuredOutputs") or [],
+                            },
+                        )
                     for c in (data.get("citations") or []):
                         await _emit("citation", c)
                     await _emit(
@@ -539,6 +574,13 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
                             "structuredOutputs": data.get("structuredOutputs") or [],
                         },
                     )
+                    logger.info(
+                        "[SSE_DEBUG][%s] queue done t=%.3fs last_delta_gap=%.3fs structured_before_done_gap=%.3fs",
+                        str(data.get("answerId") or "")[:8],
+                        time.perf_counter() - stream_started_at,
+                        (time.perf_counter() - last_message_delta_at) if last_message_delta_at else -1.0,
+                        (time.perf_counter() - structured_emitted_at) if structured_emitted_at else -1.0,
+                    )
                     await _emit("__end__", None)
 
                 runner_task = asyncio.create_task(_runner())
@@ -548,9 +590,19 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
                     ev, payload = await q.get()
                     if ev == "__end__":
                         break
+                    if ev == "message_start":
+                        yield _sse_event("message_start", payload).encode("utf-8")
+                        await asyncio.sleep(0)
+                        continue
                     if ev == "message":
                         sent_any_message = True
                         yield _sse_event("message", payload).encode("utf-8")
+                        await asyncio.sleep(0)
+                        continue
+                    if ev == "message_delta":
+                        sent_any_message = True
+                        last_message_delta_at = time.perf_counter()
+                        yield _sse_event("message_delta", payload).encode("utf-8")
                         await asyncio.sleep(0)
                         continue
                     if ev == "status":
@@ -562,12 +614,29 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
                         yield _sse_event("citation", payload).encode("utf-8")
                         await asyncio.sleep(0)
                         continue
+                    if ev == "structured_update":
+                        structured_emitted_at = time.perf_counter()
+                        logger.info(
+                            "[SSE_DEBUG][%s] emit structured_update t=%.3fs",
+                            str((payload or {}).get("answerId") or "")[:8],
+                            structured_emitted_at - stream_started_at,
+                        )
+                        yield _sse_event("structured_update", payload).encode("utf-8")
+                        await asyncio.sleep(0)
+                        continue
                     if ev == "done":
                         # 若没有任何 token 级 message（比如未配置 base_url），则把最终 answerBlocks 分块推送一次
                         if not sent_any_message:
                             for block in (payload.get("answerBlocks") or [""]):
                                 for chunk in _chunk_text(str(block or "")):
-                                    yield _sse_event("message", {"text": chunk}).encode("utf-8")
+                                    yield _sse_event(
+                                        "message_delta",
+                                        {
+                                            "sessionId": payload.get("sessionId"),
+                                            "answerId": payload.get("answerId"),
+                                            "text": chunk,
+                                        },
+                                    ).encode("utf-8")
                                     await asyncio.sleep(0)
                         yield _sse_event(
                             "done",
@@ -580,6 +649,13 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
                                 "structuredOutputs": payload.get("structuredOutputs") or [],
                             },
                         ).encode("utf-8")
+                        logger.info(
+                            "[SSE_DEBUG][%s] emit done t=%.3fs last_delta_gap=%.3fs structured_before_done_gap=%.3fs",
+                            str((payload or {}).get("answerId") or "")[:8],
+                            time.perf_counter() - stream_started_at,
+                            (time.perf_counter() - last_message_delta_at) if last_message_delta_at else -1.0,
+                            (time.perf_counter() - structured_emitted_at) if structured_emitted_at else -1.0,
+                        )
                         await asyncio.sleep(0)
                         continue
 

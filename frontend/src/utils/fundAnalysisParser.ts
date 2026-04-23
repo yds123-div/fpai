@@ -47,3 +47,20 @@ export function extractStructuredOutput(
   }
   return null
 }
+
+export function mergeFundAnalysis(
+  current: FundAnalysisOutput | null,
+  incoming: FundAnalysisOutput | null
+): FundAnalysisOutput | null {
+  if (!incoming) return current
+  if (!current) return incoming
+  return {
+    ...current,
+    ...incoming,
+    cards: Array.isArray(incoming.cards) && incoming.cards.length ? incoming.cards : (current.cards || []),
+    sections: Array.isArray(incoming.sections) && incoming.sections.length ? incoming.sections : (current.sections || []),
+    charts: Array.isArray(incoming.charts) && incoming.charts.length ? incoming.charts : (current.charts || []),
+    summary: incoming.summary || current.summary || '',
+    text: incoming.text || current.text || '',
+  }
+}
