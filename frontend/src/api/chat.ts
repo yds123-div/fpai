@@ -50,6 +50,25 @@ export interface SessionMessagesData {
   items: SessionMessageItem[]
 }
 
+export interface SessionListItem {
+  sessionId: string
+  createdAt: string
+  lastMessageAt: string
+  lastMessagePreview?: string | null
+}
+
+export interface SessionListData {
+  items: SessionListItem[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export interface DeleteSessionData {
+  sessionId: string
+  deleted: boolean
+}
+
 /**
  * 获取会话历史消息（按时间升序），用于页面刷新后恢复对话。
  * 会话不存在时抛出错误，调用方可据此清理本地缓存的 sessionId。
@@ -62,6 +81,30 @@ export async function getSessionMessages(sessionId: string, limit = 50): Promise
     throw new Error((res.message as string) || '请求失败')
   }
   return (res.data as SessionMessagesData) ?? { sessionId, items: [] }
+}
+
+/**
+ * 获取当前用户会话列表（分页，按 lastMessageAt 倒序）。
+ */
+export async function listSessions(page = 1, pageSize = 20): Promise<SessionListData> {
+  const res = await request.get<SessionListData>('/sessions', {
+    params: { page, pageSize },
+  })
+  if (res.code !== 200) {
+    throw new Error((res.message as string) || '请求失败')
+  }
+  return (res.data as SessionListData) ?? { items: [], total: 0, page, pageSize }
+}
+
+/**
+ * 删除会话（仅当前用户所属会话）
+ */
+export async function deleteSession(sessionId: string): Promise<DeleteSessionData> {
+  const res = await request.delete<DeleteSessionData>(`/sessions/${encodeURIComponent(sessionId)}`)
+  if (res.code !== 200) {
+    throw new Error((res.message as string) || '删除会话失败')
+  }
+  return (res.data as DeleteSessionData) ?? { sessionId, deleted: false }
 }
 
 /**

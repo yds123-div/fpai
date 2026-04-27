@@ -12,6 +12,12 @@
     </div>
 
     <div class="message-list" ref="listRef" @scroll="onListScroll">
+      <div v-if="restoringSession && !messages.length" class="message-row assistant">
+        <div class="message-bubble">
+          <a-spin />
+          <span style="margin-left: 8px; color: #999;">正在切换会话...</span>
+        </div>
+      </div>
       <template v-for="msg in messages" :key="msg.id">
         <div :class="['message-row', msg.role]">
           <div class="message-bubble">
@@ -118,7 +124,8 @@
 </template>
 
 <script setup>
-import { ref, nextTick, onMounted, computed } from 'vue'
+import { ref, nextTick, onMounted, onBeforeUnmount, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { postChatStream, getSessionMessages } from '@/api/chat'
 import { listModels } from '@/api/models'
 import { listKnowledgeBases } from '@/api/knowledge'
@@ -127,6 +134,8 @@ import { extractStructuredOutput, parseFundAnalysis } from '@/utils/fundAnalysis
 import { storage } from '@/utils/storage'
 
 const SESSION_STORAGE_KEY = 'chat_session_id'
+const route = useRoute()
+const router = useRouter()
 
 const listRef = ref(null)
 const messages = ref([])
@@ -156,6 +165,11 @@ const selectedModel = ref()
 const modelOptions = ref([])
 const selectedKnowledgeBase = ref()
 const knowledgeBaseOptions = ref([])
+const restoreSeq = ref(0)
+const restoringSession = ref(false)
+const SESSION_CACHE_LIMIT = 15
+const SESSION_CACHE_TTL_MS = 60 * 1000
+const sessionCache = new Map()
 
 let abortStream = null
 
@@ -211,7 +225,6 @@ async function loadKnowledgeBases() {
 onMounted(() => {
   loadModels()
   loadKnowledgeBases()
-  restoreSession()
 })
 
 /**
@@ -265,11 +278,106 @@ function scrollToBottom(force = false) {
   })
 }
 
-async function restoreSession() {
-  const saved = storage.get(SESSION_STORAGE_KEY)
-  if (!saved || typeof saved !== 'string') return
+function resetConversationState() {
+  messages.value = []
+  sessionId.value = null
+  inputText.value = ''
+  errorMsg.value = ''
+  streamingRaw.value = ''
+  streamCitations.value = []
+  progressStatus.value = ''
+  streamingOpenThinking.value = true
+  pinnedToBottom.value = true
+}
+
+function cloneMessages(list) {
+  return Array.isArray(list) ? list.map((x) => ({ ...x })) : []
+}
+
+function getCachedSession(sid) {
+  const c = sessionCache.get(sid)
+  if (!c) return null
+  // LRU: 命中后更新顺序
+  sessionCache.delete(sid)
+  sessionCache.set(sid, c)
+  return c
+}
+
+function setCachedSession(sid, msgs) {
+  if (!sid) return
+  if (sessionCache.has(sid)) {
+    sessionCache.delete(sid)
+  }
+  sessionCache.set(sid, {
+    messages: cloneMessages(msgs),
+    hydratedAt: Date.now(),
+  })
+  while (sessionCache.size > SESSION_CACHE_LIMIT) {
+    const oldestKey = sessionCache.keys().next().value
+    if (!oldestKey) break
+    sessionCache.delete(oldestKey)
+  }
+}
+
+async function syncRouteSession(targetSessionId) {
+  const cur = String(route.query.sessionId || '')
+  const next = String(targetSessionId || '')
+  if (cur === next) return
+  if (next) {
+    await router.replace({ path: '/fpai/chat', query: { sessionId: next } })
+  } else {
+    await router.replace({ path: '/fpai/chat', query: {} })
+  }
+}
+
+async function restoreSessionById(targetSessionId, opts = { syncRoute: false }) {
+  const sid = String(targetSessionId || '').trim()
+  if (!sid) return
+  if (sessionId.value === sid) return
+  const token = ++restoreSeq.value
+  const started = performance.now()
+  const cached = getCachedSession(sid)
+  const shouldRefreshFromNetwork =
+    !cached || (Date.now() - Number(cached.hydratedAt || 0)) > SESSION_CACHE_TTL_MS
+
+  // 点击切换后立即反馈：未命中缓存时立刻清空旧内容并进入 restoring 态
+  if (!cached) {
+    messages.value = []
+    restoringSession.value = true
+    sessionId.value = sid
+    if (opts?.syncRoute) {
+      await syncRouteSession(sid)
+    }
+  }
+
+  if (cached) {
+    messages.value = cloneMessages(cached.messages)
+    sessionId.value = sid
+    storage.set(SESSION_STORAGE_KEY, sid)
+    if (opts?.syncRoute) {
+      await syncRouteSession(sid)
+    }
+    scrollToBottom(true)
+    console.info('[ChatView] restoreSessionById', {
+      sessionId: sid,
+      source: 'cache',
+      elapsedMs: Math.round(performance.now() - started),
+      stale: shouldRefreshFromNetwork,
+    })
+  }
+  if (!shouldRefreshFromNetwork) {
+    restoringSession.value = false
+    return
+  }
+  // 缓存命中且过期时才后台刷新，不阻断首屏显示
+  if (cached) {
+    restoringSession.value = false
+  } else {
+    restoringSession.value = true
+  }
   try {
-    const data = await getSessionMessages(saved, 50)
+    const data = await getSessionMessages(sid, 50)
+    if (token !== restoreSeq.value) return
     const items = Array.isArray(data?.items) ? data.items : []
     const restored = items
       .filter((it) => it && (it.role === 'user' || it.role === 'assistant'))
@@ -292,11 +400,30 @@ async function restoreSession() {
         return { id: `hist-${idx}`, role: 'user', content }
       })
     messages.value = restored
-    sessionId.value = saved
+    sessionId.value = sid
+    setCachedSession(sid, restored)
+    storage.set(SESSION_STORAGE_KEY, sid)
+    if (opts?.syncRoute) {
+      await syncRouteSession(sid)
+    }
     scrollToBottom(true)
+    console.info('[ChatView] restoreSessionById', {
+      sessionId: sid,
+      source: cached ? 'network_refresh' : 'network',
+      elapsedMs: Math.round(performance.now() - started),
+    })
   } catch (e) {
+    if (token !== restoreSeq.value) return
     // 会话已失效或后端异常：清理本地缓存，不打扰用户
     storage.remove(SESSION_STORAGE_KEY)
+    resetConversationState()
+    if (opts?.syncRoute) {
+      await syncRouteSession('')
+    }
+  } finally {
+    if (token === restoreSeq.value) {
+      restoringSession.value = false
+    }
   }
 }
 
@@ -363,9 +490,14 @@ function send() {
     },
     onDone(data) {
       progressStatus.value = ''
+      const prevSessionId = String(sessionId.value || '')
       if (data?.sessionId) {
         sessionId.value = data.sessionId
         storage.set(SESSION_STORAGE_KEY, data.sessionId)
+        syncRouteSession(data.sessionId)
+        if (!prevSessionId) {
+          window.dispatchEvent(new CustomEvent('chat-session-created', { detail: { sessionId: data.sessionId } }))
+        }
       }
       const fullRaw = streamingRaw.value || ''
       streamingRaw.value = ''
@@ -389,6 +521,9 @@ function send() {
         suggestedQuestions,
         fundAnalysis,
       })
+      if (sessionId.value) {
+        setCachedSession(sessionId.value, messages.value)
+      }
       loading.value = false
       scrollToBottom()
     },
@@ -399,6 +534,47 @@ function send() {
     },
   })
 }
+
+watch(
+  () => String(route.query.sessionId || ''),
+  async (querySessionId) => {
+    const sidFromQuery = String(querySessionId || '').trim()
+    if (sidFromQuery) {
+      if (sessionId.value === sidFromQuery) return
+      await restoreSessionById(sidFromQuery)
+      return
+    }
+    const saved = storage.get(SESSION_STORAGE_KEY)
+    const sidFromStorage = typeof saved === 'string' ? saved.trim() : ''
+    if (sidFromStorage) {
+      if (sessionId.value === sidFromStorage) {
+        await syncRouteSession(sidFromStorage)
+        return
+      }
+      await restoreSessionById(sidFromStorage, { syncRoute: true })
+      return
+    }
+    if (sessionId.value || messages.value.length) {
+      if (sessionId.value) {
+        sessionCache.delete(sessionId.value)
+      }
+      resetConversationState()
+    }
+  },
+  { immediate: true }
+)
+
+watch(
+  () => loading.value,
+  (v) => {
+    window.dispatchEvent(new CustomEvent('chat-loading-change', { detail: { loading: Boolean(v) } }))
+  },
+  { immediate: true }
+)
+
+onBeforeUnmount(() => {
+  window.dispatchEvent(new CustomEvent('chat-loading-change', { detail: { loading: false } }))
+})
 </script>
 
 <style scoped>

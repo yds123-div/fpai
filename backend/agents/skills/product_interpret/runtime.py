@@ -7,6 +7,163 @@ from typing import Any, Callable
 import asyncio
 
 
+def _is_blocked_or_html_error(err: Exception) -> bool:
+    s = str(err or "")
+    return (
+        "Unexpected token '<'" in s
+        or "notfound.html" in s
+        or "403" in s
+        or "Forbidden" in s
+        or "result_code" in s
+    )
+
+
+async def _fetch_fundf10_tables(symbol: str, page: str, *, timeout_s: float = 15.0) -> dict[str, Any]:
+    """
+    通用 fundf10 HTML 表格抓取（备用源）。
+    page 示例：jdzf / zcpz / jjcc 等；URL 形如 https://fundf10.eastmoney.com/{page}_{code}.html
+    返回 {ok, data:[{col:val,...}], message?}
+    """
+    try:
+        import httpx
+        import pandas as pd  # type: ignore
+    except Exception as e:
+        return {"ok": False, "message": f"fallback {page} missing deps: {e}", "data": []}
+
+    url = f"https://fundf10.eastmoney.com/{page}_{symbol}.html"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Referer": "https://fund.eastmoney.com/",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=timeout_s, follow_redirects=True) as client:
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+            html = resp.text or ""
+        if "<html" not in html.lower():
+            return {"ok": False, "message": f"fallback {page} got non-html", "data": []}
+        dfs = pd.read_html(html)
+        if not dfs:
+            return {"ok": False, "message": f"fallback {page} read_html empty", "data": []}
+        out: list[dict[str, Any]] = []
+        for df in dfs[:4]:
+            try:
+                records = df.head(200).to_dict(orient="records")  # type: ignore[no-any-return]
+            except Exception:
+                records = []
+            for r in records:
+                if isinstance(r, dict):
+                    out.append({str(k).strip(): (str(v).strip() if v is not None else "") for k, v in r.items()})
+        out = out[:400]
+        if not out:
+            return {"ok": False, "message": f"fallback {page} parsed empty", "data": []}
+        return {"ok": True, "data": out}
+    except Exception as e:
+        return {"ok": False, "message": f"fallback {page} failed: {e}", "data": []}
+
+
+async def _fetch_eastmoney_f10_nav(symbol: str, *, timeout_s: float = 15.0) -> dict[str, Any]:
+    """
+    备用净值抓取：绕开 pingzhongdata.js，改走 fundf10 的历史净值接口（HTML table）。
+    返回格式对齐上层：{ok, message?, data:[{净值日期, 单位净值, 累计净值, 日增长率},...]}
+    """
+    try:
+        import httpx
+        import pandas as pd  # type: ignore
+    except Exception as e:
+        return {"ok": False, "message": f"fallback nav missing deps: {e}", "data": []}
+
+    url = "https://fundf10.eastmoney.com/F10DataApi.aspx"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Referer": f"https://fundf10.eastmoney.com/jjjz_{symbol}.html",
+    }
+
+    def _parse(html: str) -> list[dict[str, Any]]:
+        # Eastmoney 返回形如：var apidata={ content:"<table>...</table>", ... }
+        m = re.search(r'content:"(?P<tbl>.*)"\s*,\s*records', html, flags=re.S)
+        if not m:
+            # 有些情况下直接返回 table
+            tbl_html = html
+        else:
+            tbl_html = m.group("tbl")
+            tbl_html = tbl_html.replace("\\/", "/").replace('\\"', '"').replace("\\n", "\n")
+        try:
+            dfs = pd.read_html(tbl_html)
+        except Exception:
+            return []
+        if not dfs:
+            return []
+        df = dfs[0]
+        # 常见列：净值日期 单位净值 累计净值 日增长率 申购状态 赎回状态 分红送配
+        out: list[dict[str, Any]] = []
+        for _, row in df.head(365).iterrows():
+            rec = {}
+            for k in ("净值日期", "单位净值", "累计净值", "日增长率"):
+                if k in df.columns:
+                    v = row.get(k)
+                    rec[k] = str(v).strip() if v is not None else ""
+            if rec:
+                out.append(rec)
+        return out
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout_s, follow_redirects=True) as client:
+            # 先拿第一页（最近 20 条）
+            resp = await client.get(url, params={"type": "lsjz", "code": symbol, "page": 1, "per": 40}, headers=headers)
+            resp.raise_for_status()
+            txt = resp.text or ""
+        data = _parse(txt)
+        if not data:
+            return {"ok": False, "message": "fallback nav parse empty", "data": []}
+        return {"ok": True, "data": data}
+    except Exception as e:
+        return {"ok": False, "message": f"fallback nav failed: {e}", "data": []}
+
+
+async def _fetch_eastmoney_f10_basic(symbol: str, *, timeout_s: float = 15.0) -> dict[str, Any]:
+    """
+    备用基础信息抓取：fundf10 基本概况页面（HTML tables）。
+    返回 {ok, data:[{item,value},...]}
+    """
+    try:
+        import httpx
+        import pandas as pd  # type: ignore
+    except Exception as e:
+        return {"ok": False, "message": f"fallback basic missing deps: {e}", "data": []}
+
+    url = f"https://fundf10.eastmoney.com/jbgk_{symbol}.html"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Referer": "https://fund.eastmoney.com/",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=timeout_s, follow_redirects=True) as client:
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+            html = resp.text or ""
+        if "<html" not in html.lower():
+            return {"ok": False, "message": "fallback basic got non-html", "data": []}
+        dfs = pd.read_html(html)
+        if not dfs:
+            return {"ok": False, "message": "fallback basic read_html empty", "data": []}
+        # 取前几个表尝试拼 item/value
+        out: list[dict[str, Any]] = []
+        for df in dfs[:3]:
+            # 常见两列：项目 / 值
+            if df.shape[1] >= 2:
+                for _, row in df.iterrows():
+                    k = str(row.iloc[0]).strip()
+                    v = str(row.iloc[1]).strip()
+                    if k and k != "nan" and v and v != "nan":
+                        out.append({"item": k, "value": v})
+        out = out[:200]
+        if not out:
+            return {"ok": False, "message": "fallback basic parsed empty", "data": []}
+        return {"ok": True, "data": out}
+    except Exception as e:
+        return {"ok": False, "message": f"fallback basic failed: {e}", "data": []}
+
 async def _enrich_fund_with_ak_client(sym: str, fund_obj: dict[str, Any]) -> None:
     """从 AkShareClient.get_all_data 合并经理/评级/净值字段，避免与 client 内重复拉取逻辑。"""
     try:
@@ -194,7 +351,13 @@ async def run(question: str, ctx: dict[str, Any]) -> str:
                 fund_obj["basic_info"] = _module_ok(_df_records(df, limit=200))
                 module_ok_count += 1
             except Exception as e:
-                fund_obj["basic_info"] = _module_fail(f"fund_individual_basic_info_xq 失败: {e}")
+                # fallback: fundf10 基本概况
+                fb = await _fetch_eastmoney_f10_basic(sym)
+                if fb.get("ok") and isinstance(fb.get("data"), list) and fb["data"]:
+                    fund_obj["basic_info"] = fb
+                    module_ok_count += 1
+                else:
+                    fund_obj["basic_info"] = _module_fail(f"fund_individual_basic_info_xq 失败: {e}")
                 module_fail_count += 1
         else:
             fund_obj["basic_info"] = _module_fail("akshare 未提供 fund_individual_basic_info_xq")
@@ -208,7 +371,12 @@ async def run(question: str, ctx: dict[str, Any]) -> str:
                 fund_obj["achievement"] = _module_ok(_df_records(df, limit=200))
                 module_ok_count += 1
             except Exception as e:
-                fund_obj["achievement"] = _module_fail(f"fund_individual_achievement_xq 失败: {e}")
+                fb = await _fetch_fundf10_tables(sym, "jdzf")
+                if fb.get("ok") and isinstance(fb.get("data"), list) and fb["data"]:
+                    fund_obj["achievement"] = fb
+                    module_ok_count += 1
+                else:
+                    fund_obj["achievement"] = _module_fail(f"fund_individual_achievement_xq 失败: {e}")
                 module_fail_count += 1
         else:
             fund_obj["achievement"] = _module_fail("akshare 未提供 fund_individual_achievement_xq")
@@ -222,7 +390,12 @@ async def run(question: str, ctx: dict[str, Any]) -> str:
                 fund_obj["analysis"] = _module_ok(_df_records(df, limit=200))
                 module_ok_count += 1
             except Exception as e:
-                fund_obj["analysis"] = _module_fail(f"fund_individual_analysis_xq 失败: {e}")
+                fb = await _fetch_fundf10_tables(sym, "zcpz")
+                if fb.get("ok") and isinstance(fb.get("data"), list) and fb["data"]:
+                    fund_obj["analysis"] = fb
+                    module_ok_count += 1
+                else:
+                    fund_obj["analysis"] = _module_fail(f"fund_individual_analysis_xq 失败: {e}")
                 module_fail_count += 1
         else:
             fund_obj["analysis"] = _module_fail("akshare 未提供 fund_individual_analysis_xq")
@@ -250,7 +423,12 @@ async def run(question: str, ctx: dict[str, Any]) -> str:
                 fund_obj["detail_hold"] = _module_ok(_df_records(df, limit=120))
                 module_ok_count += 1
             except Exception as e:
-                fund_obj["detail_hold"] = _module_fail(f"fund_individual_detail_hold_xq 失败: {e}")
+                fb = await _fetch_fundf10_tables(sym, "jjcc")
+                if fb.get("ok") and isinstance(fb.get("data"), list) and fb["data"]:
+                    fund_obj["detail_hold"] = fb
+                    module_ok_count += 1
+                else:
+                    fund_obj["detail_hold"] = _module_fail(f"fund_individual_detail_hold_xq 失败: {e}")
                 module_fail_count += 1
         else:
             fund_obj["detail_hold"] = _module_fail("akshare 未提供 fund_individual_detail_hold_xq")
@@ -274,6 +452,15 @@ async def run(question: str, ctx: dict[str, Any]) -> str:
         fund_obj["risk"] = fund_obj.get("profit_probability") or _module_fail("未获取到风险相关数据")
 
         await _enrich_fund_with_ak_client(sym, fund_obj)
+        # fallback: nav_data 若仍失败（AkShare 可能走 pingzhongdata 被 notfound）
+        try:
+            nav = fund_obj.get("nav_data")
+            if not (isinstance(nav, dict) and nav.get("ok")):
+                fb_nav = await _fetch_eastmoney_f10_nav(sym)
+                if fb_nav.get("ok"):
+                    fund_obj["nav_data"] = fb_nav
+        except Exception:
+            pass
 
         funds.append(fund_obj)
 
@@ -283,7 +470,7 @@ async def run(question: str, ctx: dict[str, Any]) -> str:
             "mode": "single",
             "symbols": uniq,
             "funds": funds,
-            "note": "字段/接口因 AkShare 版本与数据源变化可能不稳定；模块级降级以 ok=false 表示。",
+            "note": "字段/接口因上游站点风控/改版可能不稳定；模块级降级以 ok=false 表示。若遇 pingzhongdata/notfound/403，将自动使用 fundf10 作为净值/基础信息备用源。",
         },
     )
 

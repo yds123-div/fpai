@@ -14,7 +14,8 @@
           <a-button 
             type="primary" 
             :class="['new-conversation-btn', { 'active': isActiveMenu.chat }]"
-            @click="handleNav('/fpai/chat')"
+            :disabled="showSessionHistory && chatBusy"
+            @click="handleNewConversation"
           >
             <PlusOutlined />
             开启新对话
@@ -59,7 +60,7 @@
           </div>
         </div>
         <div class="conversation-history">
-          
+          <SessionHistoryList v-if="showSessionHistory" />
         </div>
         <div class="sidebar-bottom">
           <!-- <a class="nav-link">
@@ -160,7 +161,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch, computed } from 'vue'
+import { ref, reactive, watch, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { Modal, message } from 'ant-design-vue'
 import {
@@ -175,6 +176,8 @@ import {
 import { useUserStore } from '@/store/user'
 import { updateCurrentUser, changePassword, getUserInfo, getUserMenus } from '@/api/user'
 import { encryptPassword } from '@/utils/crypto'
+import SessionHistoryList from '@/components/chat/SessionHistoryList.vue'
+import { storage } from '@/utils/storage'
 
 const router = useRouter()
 const route = useRoute()
@@ -187,6 +190,8 @@ const isAdminByRole = computed(() => {
 
 const canAccessAdmin = ref(false)
 const adminHomePath = ref('/admin/theme-settings')
+const chatBusy = ref(false)
+const SESSION_STORAGE_KEY = 'chat_session_id'
 
 const initAdminAccess = async () => {
   if (isAdminByRole.value) {
@@ -237,10 +242,31 @@ const isActiveMenu = computed(() => {
   }
 })
 
+const showSessionHistory = computed(() => route.path.startsWith('/fpai/chat'))
+
 // 侧栏导航跳转
 const handleNav = (path: string) => {
   router.push(path)
 }
+
+const handleNewConversation = () => {
+  if (showSessionHistory.value && chatBusy.value) return
+  storage.remove(SESSION_STORAGE_KEY)
+  router.push({ path: '/fpai/chat', query: {} })
+}
+
+function onChatLoadingChange(ev: Event) {
+  const e = ev as CustomEvent<{ loading?: boolean }>
+  chatBusy.value = Boolean(e?.detail?.loading)
+}
+
+onMounted(() => {
+  window.addEventListener('chat-loading-change', onChatLoadingChange as EventListener)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('chat-loading-change', onChatLoadingChange as EventListener)
+})
 
 // 个人信息弹窗相关状态
 const profileModalVisible = ref(false)

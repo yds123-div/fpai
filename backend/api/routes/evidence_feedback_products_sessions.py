@@ -9,15 +9,20 @@ GET /api/v1/products/search、GET|POST /api/v1/sessions。
 from __future__ import annotations
 
 from typing import Any
+import asyncio
+import time
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from api.deps import get_auth_context, get_current_user_id
 from pkg.codes import ErrorCode, envelope, message_for
+from pkg.logger import get_logger
 
 router = APIRouter(prefix="", tags=["evidence_feedback_products_sessions"])
+logger = get_logger(__name__)
 
 
 def _permission_context(auth: Any) -> dict[str, Any]:
@@ -305,6 +310,7 @@ async def get_session_messages(
             status_code=200,
             content=envelope(code=ErrorCode.VALIDATION_ERROR, message="sessionId 不能为空", data=None),
         )
+    t0 = time.perf_counter()
     try:
         from orchestrator.session import get_session, get_recent_messages
         session = get_session(session_id)
@@ -345,6 +351,13 @@ async def get_session_messages(
         pass
     # get_recent_messages 是按 created_at 倒序返回，这里翻转为正序以便前端按顺序渲染
     items = list(reversed(rows))
+    elapsed_ms = int((time.perf_counter() - t0) * 1000)
+    logger.info(
+        "[sessions/messages] read done elapsed_ms=%s session_id=%s item_count=%s",
+        elapsed_ms,
+        session_id[:8],
+        len(items),
+    )
     return JSONResponse(
         status_code=200,
         content=envelope(code=ErrorCode.OK, message="ok", data={"sessionId": session_id, "items": items}),
@@ -365,4 +378,109 @@ async def create_session_api(user_id: str = Depends(get_current_user_id)):
     return JSONResponse(
         status_code=200,
         content=envelope(code=ErrorCode.OK, message="ok", data={"id": session_id, "sessionId": session_id}),
+    )
+
+
+@router.get("/sessions")
+async def list_sessions(
+    page: int = 1,
+    pageSize: int = 20,
+    user_id: str = Depends(get_current_user_id),
+):
+    """分页获取当前用户会话列表（包含无消息会话），按 lastMessageAt 倒序。"""
+    p = max(1, int(page or 1))
+    ps = max(1, min(int(pageSize or 20), 100))
+    app_timeout_s = 3.0
+    try:
+        from orchestrator.session import list_user_sessions
+
+        rows, total = await asyncio.wait_for(
+            run_in_threadpool(
+                list_user_sessions,
+                user_id=user_id or "",
+                page=p,
+                page_size=ps,
+                mysql_connect_timeout=3,
+                mysql_read_timeout=5,
+                mysql_write_timeout=5,
+                query_timeout_ms=3000,
+            ),
+            timeout=app_timeout_s,
+        )
+        items = [
+            {
+                "sessionId": r.get("session_id") or "",
+                "createdAt": r.get("created_at") or "",
+                "lastMessageAt": r.get("last_message_at") or r.get("created_at") or "",
+                "lastMessagePreview": r.get("last_message_preview"),
+            }
+            for r in (rows or [])
+        ]
+    except asyncio.TimeoutError:
+        logger.warning(
+            "[sessions/list] timeout, return empty list timeout_s=%.1f",
+            app_timeout_s,
+        )
+        items = []
+        total = 0
+    except Exception as e:
+        logger.warning(
+            "[sessions/list] failed, return empty list error=%s",
+            e,
+            exc_info=True,
+        )
+        items = []
+        total = 0
+    return JSONResponse(
+        status_code=200,
+        content=envelope(
+            code=ErrorCode.OK,
+            message="ok",
+            data={"items": items, "total": total, "page": p, "pageSize": ps},
+        ),
+    )
+
+
+@router.delete("/sessions/{session_id}")
+def delete_session(
+    session_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    """删除当前用户会话（硬删除）。"""
+    sid = (session_id or "").strip()
+    if not sid:
+        return JSONResponse(
+            status_code=404,
+            content=envelope(code=ErrorCode.SESSION_NOT_FOUND, message=message_for(ErrorCode.SESSION_NOT_FOUND), data=None),
+        )
+    t0 = time.perf_counter()
+    try:
+        from orchestrator.session import delete_user_session
+        status = delete_user_session(sid, user_id or "")
+    except Exception as e:
+        logger.warning("[sessions/delete] route error=%s", e, exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content=envelope(code=ErrorCode.INTERNAL_ERROR, message=message_for(ErrorCode.INTERNAL_ERROR), data=None),
+        )
+    elapsed_ms = int((time.perf_counter() - t0) * 1000)
+    logger.info("[sessions/delete] done elapsed_ms=%s session_id=%s status=%s", elapsed_ms, sid[:8], status)
+    if status == "not_found":
+        return JSONResponse(
+            status_code=404,
+            content=envelope(code=ErrorCode.SESSION_NOT_FOUND, message=message_for(ErrorCode.SESSION_NOT_FOUND), data=None),
+        )
+    if status == "forbidden":
+        return JSONResponse(
+            status_code=403,
+            content=envelope(code=ErrorCode.FORBIDDEN, message=message_for(ErrorCode.FORBIDDEN), data=None),
+        )
+    if status != "deleted":
+        return JSONResponse(
+            status_code=500,
+            content=envelope(code=ErrorCode.INTERNAL_ERROR, message=message_for(ErrorCode.INTERNAL_ERROR), data=None),
+        )
+    return JSONResponse(
+        status_code=200,
+        content=envelope(code=ErrorCode.OK, message="ok", data={"sessionId": sid, "deleted": True}),
     )
