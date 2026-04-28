@@ -81,7 +81,7 @@ def _decode(data: bytes | None) -> Any:
 
 def session_context_get(session_id: str) -> Any | None:
     """获取会话上下文（JSON 或字符串）；无或 Redis 不可用时返回 None。"""
-    client = get_client()
+    client = get_client("session_context_get")
     if not client:
         return None
     key = key_session(session_id)
@@ -91,7 +91,7 @@ def session_context_get(session_id: str) -> Any | None:
 
 def session_context_set(session_id: str, value: Any, ttl_seconds: int | None = None) -> bool:
     """设置会话上下文；ttl 默认 REDIS_SESSION_TTL_SECONDS。"""
-    client = get_client()
+    client = get_client("session_context_set")
     if not client:
         return False
     key = key_session(session_id)
@@ -101,7 +101,7 @@ def session_context_set(session_id: str, value: Any, ttl_seconds: int | None = N
 
 
 def session_context_delete(session_id: str) -> bool:
-    client = get_client()
+    client = get_client("session_context_delete")
     if not client:
         return False
     client.delete(key_session(session_id))
@@ -110,7 +110,7 @@ def session_context_delete(session_id: str) -> bool:
 
 def session_context_ttl(session_id: str) -> int:
     """剩余 TTL（秒），-2 表示 key 不存在，-1 表示无过期。"""
-    client = get_client()
+    client = get_client("session_context_ttl")
     if not client:
         return -2
     return client.ttl(key_session(session_id))
@@ -118,7 +118,7 @@ def session_context_ttl(session_id: str) -> int:
 
 def session_context_refresh(session_id: str, ttl_seconds: int | None = None) -> bool:
     """续期会话 TTL。"""
-    client = get_client()
+    client = get_client("session_context_refresh")
     if not client:
         return False
     ttl = ttl_seconds if ttl_seconds is not None else DEFAULT_SESSION_TTL
@@ -129,7 +129,7 @@ def session_context_refresh(session_id: str, ttl_seconds: int | None = None) -> 
 
 
 def product_summary_get(product_id: str) -> Any | None:
-    client = get_client()
+    client = get_client("product_summary_get")
     if not client:
         return None
     return _decode(client.get(key_product_summary(product_id)))
@@ -138,7 +138,7 @@ def product_summary_get(product_id: str) -> Any | None:
 def product_summary_set(
     product_id: str, value: Any, ttl_seconds: int | None = None
 ) -> bool:
-    client = get_client()
+    client = get_client("product_summary_set")
     if not client:
         return False
     ttl = ttl_seconds if ttl_seconds is not None else DEFAULT_PRODUCT_CACHE_TTL
@@ -147,7 +147,7 @@ def product_summary_set(
 
 
 def product_summary_delete(product_id: str) -> bool:
-    client = get_client()
+    client = get_client("product_summary_delete")
     if not client:
         return False
     client.delete(key_product_summary(product_id))
@@ -159,7 +159,7 @@ def product_summary_delete(product_id: str) -> bool:
 
 def retrieval_cache_get(query_hash: str, filters_hash: str, user_context_hash: str) -> Any | None:
     """使用 key_retrieval_cache_hashed 缩短 key 长度。"""
-    client = get_client()
+    client = get_client("retrieval_cache_get")
     if not client:
         return None
     key = key_retrieval_cache_hashed(query_hash, filters_hash, user_context_hash)
@@ -174,7 +174,7 @@ def retrieval_cache_set(
     ttl_seconds: int | None = None,
 ) -> bool:
     ttl = ttl_seconds if ttl_seconds is not None else DEFAULT_RETRIEVAL_CACHE_TTL
-    client = get_client()
+    client = get_client("retrieval_cache_set")
     if not client:
         return False
     key = key_retrieval_cache_hashed(query_hash, filters_hash, user_context_hash)
@@ -190,7 +190,7 @@ def ratelimit_check(user_id: str, scope: str = "chat") -> tuple[bool, int]:
     检查是否超限。返回 (是否允许, 当前计数)。
     使用固定窗口：key 带窗口起始时间或单窗口内 INCR，首次设置 EXPIRE。
     """
-    client = get_client()
+    client = get_client("ratelimit_check")
     if not client:
         return True, 0
     key = key_ratelimit(user_id, scope)
@@ -206,7 +206,7 @@ def ratelimit_incr(user_id: str, scope: str = "chat") -> tuple[bool, int]:
     """
     增加计数并返回 (是否允许, 当前计数)。首次 incr 时设置窗口 TTL。
     """
-    client = get_client()
+    client = get_client("ratelimit_incr")
     if not client:
         return True, 0
     key = key_ratelimit(user_id, scope)
@@ -230,7 +230,7 @@ def idempotent_set_if_not_exists(
     """
     若 requestId 尚未存在则设置并返回 True，否则返回 False（已存在，幂等命中）。
     """
-    client = get_client()
+    client = get_client("idempotent_set_if_not_exists")
     if not client:
         return True
     key = key_idempotent(request_id)
@@ -241,7 +241,7 @@ def idempotent_set_if_not_exists(
 
 def idempotent_get(request_id: str) -> Any | None:
     """获取幂等键对应值；不存在返回 None。"""
-    client = get_client()
+    client = get_client("idempotent_get")
     if not client:
         return None
     return _decode(client.get(key_idempotent(request_id)))

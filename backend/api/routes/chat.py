@@ -242,11 +242,12 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
     - stream=true：返回 text/event-stream，事件 message/citation/done/error。
     - stream=false：返回 JSON envelope，data 含 answerId、answerBlocks、citations、compliance、trace、suggestedQuestions。
     """
-    # ========== 性能监控：API 入口 ==========
+    # ========== TTFT 分段监控：API 入口 ==========
     import time
     t_api_start = time.perf_counter()
-    trace_id_temp = (request.headers.get("X-Request-Id") or "").strip() or "unknown"
-    logger.info(f"📨 [{trace_id_temp[:8]}] /chat 请求 stream={body.stream}")
+    request_id = (request.headers.get("X-Request-Id") or "").strip() or uuid.uuid4().hex
+    t_marks: dict[str, float] = {"T2": t_api_start}
+    logger.info("[TTFT][back][%s] T2 route_received stream=%s", request_id[:8], bool(body.stream))
     
     # 1) 会话管理与权限上下文并行处理
     user_id = getattr(auth, "user_id", "") or ""
@@ -299,19 +300,12 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
         return (body.message or "").strip()
     
     # 并行执行
-    t_now = time.perf_counter()
-    # 并行初始化开始不记录日志
-    
     session_result, permission_context, trace_id, msg = await asyncio.gather(
         _handle_session(),
         _prepare_permission_context(),
         _prepare_trace_id(),
         _prepare_message(),
     )
-    
-    t_now = time.perf_counter()
-    if t_now - t_api_start > 2.0:  # 只记录超过2秒的初始化
-        logger.info(f"⏱️  [{trace_id_temp[:8]}] 并行初始化耗时 {t_now - t_api_start:.2f}s")
     
     # 检查会话是否有效
     if session_result is None:
@@ -321,9 +315,6 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
         )
 
     # 2) 更新会话上下文（写回）+ 落用户消息 并行
-    t_now = time.perf_counter()
-    # 会话上下文更新开始不记录日志
-    
     customer_profile_str = _stringify_customer_profile(body.customerProfile)
     
     # 并行任务: 更新会话上下文 + 落用户消息
@@ -337,13 +328,29 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
         asyncio.to_thread(append_message, session_id, "user", msg[:2000]),
     )
     
-    t_now = time.perf_counter()
-    # 会话上下文更新完成不记录日志（通常很快）
-
     # 3) 供编排使用的会话上下文（合并 request + session）
     ctx = get_session_context_for_orchestration(session_id)
     product_ids = body.productIds if body.productIds is not None else ctx.get("product_ids")
     customer_profile = customer_profile_str if body.customerProfile is not None else ctx.get("customer_profile")
+    t_marks["T3"] = time.perf_counter()
+    logger.info(
+        "[TTFT][back][%s] T3 context_ready t2_to_t3_ms=%d",
+        request_id[:8],
+        int((t_marks["T3"] - t_marks["T2"]) * 1000),
+    )
+
+    # 轻量上下文：历史消息数量与近似 prompt 长度（用于解释模型/网关慢）
+    # 仅用于日志汇总，不参与主逻辑；取最近 12 条 content_summary。
+    history_message_count = 0
+    history_chars = 0
+    try:
+        history = await asyncio.to_thread(get_recent_messages, session_id, 12)
+        if isinstance(history, list):
+            history_message_count = len(history)
+            history_chars = sum(len(str(it.get("content_summary") or "")) for it in history if isinstance(it, dict))
+    except Exception:
+        history_message_count = 0
+        history_chars = 0
 
     async def _run_once() -> dict[str, Any]:
         # 若传入 model_id，则从 MySQL 读取模型配置（base_url/api_key/model_name），用于本轮覆盖
@@ -401,7 +408,7 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
             
             t_now = time.perf_counter()
             total_time = t_now - t_api_start
-            logger.info(f"✅ [{trace_id_temp[:8]}] /chat 完成 总耗时 {total_time:.2f}s")
+            logger.info("✅ [%s] /chat 完成 总耗时 %.2fs", request_id[:8], total_time)
             
             return JSONResponse(status_code=200, content=envelope(code=ErrorCode.OK, message="ok", data=data))
         except Exception:
@@ -412,10 +419,28 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
 
     # 8) 流式 SSE（当前实现为“结果完成后分块推送”，后续可替换为真正流式生成）
     async def event_gen() -> AsyncGenerator[bytes, None]:
+        stream_path = "unknown"  # delta_stream | done_fallback | error | cancelled
+        summary_ctx: dict[str, Any] = {
+            "sessionId": (session_id or "")[:8],
+            "model_name": None,
+            "model_provider": None,
+            "model_route": None,
+            "prompt_chars_proxy": None,
+            "prompt_messages_proxy": None,
+            "model_retry_count": None,
+            "retrieval_doc_count": None,
+            "tool_call_count": None,
+            "history_message_count": history_message_count,
+            "history_chars": history_chars,
+        }
+        stage_marks: dict[str, float] = {}
         try:
             stream_started_at = time.perf_counter()
+            t_marks["stream_start"] = stream_started_at
             last_message_delta_at: float | None = None
             structured_emitted_at: float | None = None
+            first_token_seen = False
+            first_sse_flushed = False
             # 若传入 model_id 且模型配置含 base_url，则走 OpenAI 兼容“真正流式”直连模式
             base_url_override: str | None = None
             api_key_override: str | None = None
@@ -433,6 +458,7 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
                     pass
 
             if (body.direct_stream is True) and base_url_override and model_name_override:
+                summary_ctx["model_name"] = model_name_override
                 answer_id = uuid.uuid4().hex
                 streaming_text = ""
                 openai_messages = _build_openai_messages_from_history(session_id, msg, limit=12)
@@ -442,6 +468,8 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
                     time.perf_counter() - stream_started_at,
                 )
                 yield _sse_event("message_start", {"sessionId": session_id, "answerId": answer_id}).encode("utf-8")
+                # 直连模式：在开始请求模型前打 T5
+                t_marks.setdefault("T5", time.perf_counter())
                 async for t in _stream_openai_chat(
                     base_url=base_url_override,
                     api_key=api_key_override,
@@ -449,7 +477,13 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
                     messages=openai_messages,
                 ):
                     streaming_text += t
+                    if t and "T6" not in t_marks:
+                        t_marks["T6"] = time.perf_counter()
                     last_message_delta_at = time.perf_counter()
+                    if (not first_sse_flushed) and t:
+                        first_sse_flushed = True
+                        t_marks["T7"] = last_message_delta_at
+                        stream_path = "delta_stream"
                     yield _sse_event("message_delta", {"sessionId": session_id, "answerId": answer_id, "text": t}).encode("utf-8")
                     await asyncio.sleep(0)
 
@@ -481,10 +515,72 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
                 async def _progress(stage: str, **kwargs):
                     """接收编排器的进度事件"""
                     message = kwargs.get("message", "")
+                    now = time.perf_counter()
+                    if stage in (
+                        "planning_start",
+                        "planning_end",
+                        "compliance_start",
+                        "compliance_end",
+                        "agent_prepare_start",
+                        "agent_prepare_end",
+                        "retrieval_start",
+                        "retrieval_end",
+                        "model_request_ready",
+                    ):
+                        stage_marks[stage] = now
+                        logger.info(
+                            "[TTFT_STAGE][%s] %s t2_to_stage_ms=%d",
+                            request_id[:8],
+                            stage,
+                            int((now - t_marks["T2"]) * 1000),
+                        )
+                    if stage == "model_request_ready":
+                        summary_ctx["model_name"] = kwargs.get("model_name") or summary_ctx.get("model_name")
+                        summary_ctx["model_provider"] = kwargs.get("provider") or summary_ctx.get("model_provider")
+                        summary_ctx["model_route"] = kwargs.get("route") or summary_ctx.get("model_route")
+                        summary_ctx["prompt_chars_proxy"] = kwargs.get("prompt_chars_proxy")
+                        summary_ctx["prompt_messages_proxy"] = kwargs.get("prompt_messages_proxy")
+                        summary_ctx["model_retry_count"] = kwargs.get("retry_count")
+                    if stage in ("planning_done", "skill_fetching_done", "retrieval_done") and "T4" not in t_marks:
+                        t_marks["T4"] = now
+                        logger.info(
+                            "[TTFT][back][%s] T4 pre_llm_ready t2_to_t4_ms=%d stage=%s",
+                            request_id[:8],
+                            int((now - t_marks["T2"]) * 1000),
+                            stage,
+                        )
+                    elif stage in ("llm_generating", "model_request_start") and "T5" not in t_marks:
+                        t_marks["T5"] = now
+                        logger.info(
+                            "[TTFT][back][%s] T5 model_request_start t2_to_t5_ms=%d stage=%s",
+                            request_id[:8],
+                            int((now - t_marks["T2"]) * 1000),
+                            stage,
+                        )
+                    elif stage == "model_first_token" and "T6" not in t_marks:
+                        t_marks["T6"] = now
+                        logger.info(
+                            "[TTFT][back][%s] T6 model_first_token t5_to_t6_ms=%d t2_to_t6_ms=%d",
+                            request_id[:8],
+                            int((now - t_marks.get("T5", now)) * 1000),
+                            int((now - t_marks["T2"]) * 1000),
+                        )
                     await _emit("status", {"stage": stage, "message": message})
 
                 async def _stream_token(t: str):
                     # 仅推送增量 token
+                    nonlocal first_token_seen
+                    if t and (not first_token_seen):
+                        first_token_seen = True
+                        now = time.perf_counter()
+                        if "T6" not in t_marks:
+                            t_marks["T6"] = now
+                            logger.info(
+                                "[TTFT][back][%s] T6 model_first_token t5_to_t6_ms=%d t2_to_t6_ms=%d",
+                                request_id[:8],
+                                int((now - t_marks.get("T5", now)) * 1000),
+                                int((now - t_marks["T2"]) * 1000),
+                            )
                     await _emit("message_delta", {"text": t})
 
                 async def _runner():
@@ -506,6 +602,7 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
                     stream_answer_id = uuid.uuid4().hex
                     await _progress("accepted")
                     await _emit("message_start", {"sessionId": session_id, "answerId": stream_answer_id})
+                    summary_ctx["model_name"] = model_name_ov
                     result = await run_chat_turn_async(
                         msg,
                         session_id=session_id,
@@ -533,6 +630,16 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
                         "suggestedQuestions": result.suggested_questions or [],
                         "structuredOutputs": getattr(result, "structured_outputs", None) or [],
                     }
+                    try:
+                        summary_ctx["retrieval_doc_count"] = len(data.get("citations") or [])
+                    except Exception:
+                        summary_ctx["retrieval_doc_count"] = None
+                    try:
+                        tr = data.get("trace") or {}
+                        if isinstance(tr, dict):
+                            summary_ctx["tool_call_count"] = tr.get("tool_call_count") or tr.get("toolCallCount")
+                    except Exception:
+                        summary_ctx["tool_call_count"] = None
                     # 若未走 token 流式（比如没有 base_url），此处补发一次性文本（分块）
                     answer_blocks = data.get("answerBlocks") or []
                     if answer_blocks:
@@ -586,6 +693,13 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
 
                 sent_any_message = False
                 while True:
+                    try:
+                        if await request.is_disconnected():
+                            stream_path = "cancelled"
+                            runner_task.cancel()
+                            break
+                    except Exception:
+                        pass
                     ev, payload = await q.get()
                     if ev == "__end__":
                         break
@@ -601,6 +715,16 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
                     if ev == "message_delta":
                         sent_any_message = True
                         last_message_delta_at = time.perf_counter()
+                        if (not first_sse_flushed) and (payload or {}).get("text"):
+                            first_sse_flushed = True
+                            t_marks["T7"] = last_message_delta_at
+                            stream_path = "delta_stream"
+                            logger.info(
+                                "[TTFT][back][%s] T7 first_sse_flush t6_to_t7_ms=%d t2_to_t7_ms=%d",
+                                request_id[:8],
+                                int((t_marks["T7"] - t_marks.get("T6", t_marks["T7"])) * 1000),
+                                int((t_marks["T7"] - t_marks["T2"]) * 1000),
+                            )
                         yield _sse_event("message_delta", payload).encode("utf-8")
                         await asyncio.sleep(0)
                         continue
@@ -626,8 +750,12 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
                     if ev == "done":
                         # 若没有任何 token 级 message（比如未配置 base_url），则把最终 answerBlocks 分块推送一次
                         if not sent_any_message:
+                            stream_path = "done_fallback"
                             for block in (payload.get("answerBlocks") or [""]):
                                 for chunk in _chunk_text(str(block or "")):
+                                    if chunk and (not first_sse_flushed):
+                                        first_sse_flushed = True
+                                        t_marks["T7"] = time.perf_counter()
                                     yield _sse_event(
                                         "message_delta",
                                         {
@@ -662,9 +790,55 @@ async def chat(body: ChatBody, request: Request, auth=Depends(get_auth_context))
                     await runner_task
                 except Exception:
                     pass
+                if "T7" in t_marks:
+                    logger.info(
+                        "[TTFT][back][%s] summary t2_to_t3_ms=%d t3_to_t7_ms=%d t2_to_t7_ms=%d",
+                        request_id[:8],
+                        int((t_marks.get("T3", t_marks["T2"]) - t_marks["T2"]) * 1000),
+                        int((t_marks["T7"] - t_marks.get("T3", t_marks["T2"])) * 1000),
+                        int((t_marks["T7"] - t_marks["T2"]) * 1000),
+                    )
+                # 单行汇总：用于采样分析/聚合（注意：全程使用 perf_counter 计算）
+                t_end = time.perf_counter()
+                t3_to_t5_ms = int((t_marks.get("T5", t_end) - t_marks.get("T3", t_marks["T2"])) * 1000)
+                t5_to_t6_ms = int((t_marks.get("T6", t_end) - t_marks.get("T5", t_end)) * 1000) if "T5" in t_marks else -1
+                ttft_total_ms = int((t_marks.get("T7", t_end) - t_marks["T2"]) * 1000) if "T7" in t_marks else -1
+                planning_ms = int((stage_marks.get("planning_end", t_end) - stage_marks.get("planning_start", stage_marks.get("planning_end", t_end))) * 1000) if "planning_end" in stage_marks else -1
+                compliance_ms = int((stage_marks.get("compliance_end", t_end) - stage_marks.get("compliance_start", stage_marks.get("compliance_end", t_end))) * 1000) if "compliance_end" in stage_marks else -1
+                agent_prepare_ms = int((stage_marks.get("agent_prepare_end", t_end) - stage_marks.get("agent_prepare_start", stage_marks.get("agent_prepare_end", t_end))) * 1000) if "agent_prepare_end" in stage_marks else -1
+                retrieval_ms = int((stage_marks.get("retrieval_end", t_end) - stage_marks.get("retrieval_start", stage_marks.get("retrieval_end", t_end))) * 1000) if "retrieval_end" in stage_marks else -1
+                logger.info(
+                    "[TTFT_SUMMARY] requestId=%s sessionId=%s model_name=%s stream_path=%s "
+                    "ttft_total_ms=%d T3_to_T5_ms=%d T5_to_T6_ms=%d T6_to_T8_ms=%d "
+                    "planning_ms=%d compliance_ms=%d agent_prepare_ms=%d retrieval_ms=%d "
+                    "model_provider=%s model_route=%s prompt_chars_proxy=%s prompt_messages_proxy=%s model_retry_count=%s "
+                    "history_message_count=%d history_chars=%d retrieval_doc_count=%s tool_call_count=%s",
+                    request_id,
+                    summary_ctx.get("sessionId") or "",
+                    summary_ctx.get("model_name") or "",
+                    stream_path,
+                    ttft_total_ms,
+                    t3_to_t5_ms,
+                    t5_to_t6_ms,
+                    -1,  # 无法在不改 SSE payload 的前提下直接测到 T6->T8
+                    planning_ms,
+                    compliance_ms,
+                    agent_prepare_ms,
+                    retrieval_ms,
+                    summary_ctx.get("model_provider"),
+                    summary_ctx.get("model_route"),
+                    summary_ctx.get("prompt_chars_proxy"),
+                    summary_ctx.get("prompt_messages_proxy"),
+                    summary_ctx.get("model_retry_count"),
+                    int(summary_ctx.get("history_message_count") or 0),
+                    int(summary_ctx.get("history_chars") or 0),
+                    summary_ctx.get("retrieval_doc_count"),
+                    summary_ctx.get("tool_call_count"),
+                )
         except asyncio.CancelledError:
             raise
         except Exception as e:
+            stream_path = "error"
             logger.warning("chat 流式执行异常，推送 error 事件: %s", e, exc_info=True)
             yield _sse_event(
                 "error",

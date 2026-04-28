@@ -22,6 +22,7 @@ export interface ChatStreamCallbacks {
   onStatus?: (data: { stage?: string; message?: string }) => void
   onDone?: (data: unknown) => void
   onError?: (data: { code?: number; message?: string }) => void
+  onMeta?: (data: { requestId: string; t1RequestSentAt: number; t8FirstChunkAt?: number }) => void
 }
 
 /**
@@ -112,15 +113,22 @@ export async function deleteSession(sessionId: string): Promise<DeleteSessionDat
  */
 export function postChatStream(
   body: Record<string, unknown>,
-  { onMessage, onCitation, onStatus, onDone, onError }: ChatStreamCallbacks = {}
+  { onMessage, onCitation, onStatus, onDone, onError, onMeta }: ChatStreamCallbacks = {}
 ): () => void {
   const controller = new AbortController()
   const payload = JSON.stringify({ ...body, stream: true })
   const url = `${API_BASE}/chat`
+  const requestId = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+    ? crypto.randomUUID()
+    : `rid-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  const t1RequestSentAt = performance.now()
+  let firstChunkMarked = false
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'X-Request-Id': requestId,
     ...getAuthHeader(),
   }
+  onMeta?.({ requestId, t1RequestSentAt })
 
   fetch(url, {
     method: 'POST',
@@ -156,7 +164,13 @@ export function postChatStream(
           } else if (line === '' && currentEvent && currentData) {
             try {
               const data = JSON.parse(currentData) as unknown
-              if (currentEvent === 'message' || currentEvent === 'message_delta') onMessage?.(data)
+              if (currentEvent === 'message' || currentEvent === 'message_delta') {
+                if (!firstChunkMarked) {
+                  firstChunkMarked = true
+                  onMeta?.({ requestId, t1RequestSentAt, t8FirstChunkAt: performance.now() })
+                }
+                onMessage?.(data)
+              }
               else if (currentEvent === 'citation') onCitation?.(data)
               else if (currentEvent === 'status') onStatus?.(data as { stage?: string; message?: string })
               else if (currentEvent === 'done') {

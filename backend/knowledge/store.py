@@ -118,3 +118,26 @@ def upsert_knowledge_bases(items: list[dict[str, Any]]) -> int:
         logger.warning("upsert_knowledge_bases failed: %s", e)
         return 0
 
+
+def delete_knowledge_base(identifier: str) -> dict[str, Any]:
+    """
+    删除本地 knowledge_bases 表中的单条映射记录。
+
+    注意：这里只删除本地同步结果（uuid/name 映射），不会触碰外部知识库源数据。
+    """
+    kb_id = (identifier or "").strip()
+    if not kb_id or not _ensure_table():
+        return {"ok": False, "deleted": False, "id": kb_id}
+    try:
+        with get_connection() as conn:
+            if not conn:
+                return {"ok": False, "deleted": False, "id": kb_id}
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM knowledge_bases WHERE uuid = %s", (kb_id,))
+                affected = int(cur.rowcount or 0)
+            conn.commit()
+        return {"ok": True, "deleted": affected > 0, "id": kb_id, "affected": affected}
+    except Exception as e:
+        logger.warning("delete_knowledge_base failed: id=%s err=%s", kb_id, e)
+        return {"ok": False, "deleted": False, "id": kb_id}
+

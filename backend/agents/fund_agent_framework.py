@@ -413,6 +413,79 @@ def _heuristic_classify(text: str) -> IntentCategory:
     return "other"
 
 
+def _is_simple_planning_fast_path_candidate(text: str, codes: list[str]) -> bool:
+    """
+    判断是否可走“轻量规划快速通道”：
+    - 用户已给出基金代码（避免依赖名称转代码 skill）
+    - 问题不含明显多意图拼接信号（避免误判复杂问题）
+    """
+    t = _safe_first_str(text)
+    if not t or not codes:
+        return False
+    # 多意图/复合请求常见连接词：命中则保守走完整 planning
+    complex_markers = ("同时", "并且", "另外", "顺便", "以及", "还有", "然后", "再", "并")
+    if any(k in t for k in complex_markers):
+        return False
+    # 长问题更可能是复合意图，保守走完整 planning
+    if len(t) > 40:
+        return False
+    return True
+
+
+def _looks_like_kb_explainer_query(text: str) -> bool:
+    """
+    判断是否更像“概念说明/知识解释/指南类”问题，而非具体基金产品筛选查询。
+    用于在已选择 knowledge_base_id 时对 planner 结果做最小纠偏。
+    """
+    t = _safe_first_str(text)
+    if not t:
+        return False
+    concept_triggers = (
+        "什么是",
+        "是什么意思",
+        "解释",
+        "科普",
+        "入门",
+        "指南",
+        "基础",
+        "原理",
+        "概念",
+        "常见",
+        "如何理解",
+    )
+    return any(k in t for k in concept_triggers)
+
+
+def _has_strong_product_intent(text: str) -> bool:
+    """
+    判断是否具备明确“基金产品查询/比较/解读”意图。
+    命中这些信号时，仍保持 product_* 路由与代码强约束。
+    """
+    t = _safe_first_str(text)
+    if not t:
+        return False
+    strong_triggers = (
+        "有哪些",
+        "哪些",
+        "推荐",
+        "排行",
+        "排名",
+        "对比",
+        "比较",
+        "哪个好",
+        "收益率",
+        "净值",
+        "回撤",
+        "波动",
+        "费率",
+        "规模",
+        "代码",
+        "能买吗",
+        "值不值得",
+    )
+    return any(k in t for k in strong_triggers)
+
+
 COORDINATOR_DEFAULT_SYSTEM_PROMPT = """
 你是一个“任务规划助手”，负责把用户输入拆分成可执行的子任务，并输出严格 JSON。
 
@@ -503,6 +576,25 @@ class CoordinatorAgent:
             # 短路失败不影响主流程
             pass
 
+        # 轻量 fast path：简单且已给出基金代码的问题，直接用启发式路由，跳过完整 planner LLM 调用
+        # 目标：降低稳定的 planning_ms（不改主编排结构）。
+        try:
+            if _is_simple_planning_fast_path_candidate(q, user_input_codes):
+                cat_fast = _heuristic_classify(q)
+                if cat_fast in ("product_query", "product_interpret", "product_compare"):
+                    logger.info(
+                        "Coordinator fast path hit: category=%s code_count=%d",
+                        cat_fast,
+                        len(user_input_codes),
+                    )
+                    return {
+                        "multi": False,
+                        "tasks": [{"type": cat_fast, "question": q}],
+                        "final_instruction": "",
+                    }
+        except Exception:
+            pass
+
         # 没有知识库可用时，没必要拆 kb_search
         kb_id = (ctx.knowledge_base_id or "").strip()
 
@@ -583,6 +675,17 @@ class CoordinatorAgent:
                     tp = "other"
                 if tp not in ("product_query", "product_interpret", "product_compare", "other"):
                     continue
+                # 最小纠偏：当用户已选择知识库、且问题更像“知识解释类”而非具体产品查询时，
+                # 将误判的 product_* 下修为 other，避免误触发基金代码强约束。
+                if (
+                    tp in ("product_query", "product_interpret")
+                    and kb_id
+                    and (not user_input_codes)
+                    and (not planner_codes)
+                    and _looks_like_kb_explainer_query(q)
+                    and (not _has_strong_product_intent(q))
+                ):
+                    tp = "other"
                 if tp in ("product_query", "product_interpret", "product_compare"):
                     qq_before = qq
                     codes_for_task = _pick_codes_for_question(qq, planner_name_code_pairs, planner_codes)

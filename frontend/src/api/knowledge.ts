@@ -39,6 +39,14 @@ export function syncKnowledgeBases(): Promise<ApiResponse<{ ok: boolean; count: 
   return request.post<{ ok: boolean; count: number; message: string }>('/knowledge/bases/sync')
 }
 
+export function deleteKnowledgeBaseSyncRecord(
+  knowledgeBaseId: string
+): Promise<ApiResponse<{ id: string; deleted: boolean; scope: string }>> {
+  return request.delete<{ id: string; deleted: boolean; scope: string }>(
+    `/knowledge/bases/${encodeURIComponent(knowledgeBaseId)}`
+  )
+}
+
 /**
  * 知识库对话（SSE 流式）：后端会先外部检索，再调用 LLM 回答
  */

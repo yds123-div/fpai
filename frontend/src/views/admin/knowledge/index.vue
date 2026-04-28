@@ -10,6 +10,28 @@
       </div>
     </div>
 
+    <a-card title="已同步知识库列表" style="margin-top: 12px">
+      <a-table
+        :data-source="knowledgeBaseRows"
+        :columns="knowledgeBaseColumns"
+        :loading="listLoading"
+        row-key="uuid"
+        size="small"
+        :pagination="{ pageSize: 8, showSizeChanger: false }"
+      >
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'updated_at'">
+            {{ record.updated_at || '-' }}
+          </template>
+          <template v-else-if="column.key === 'actions'">
+            <a-button type="link" danger :loading="deletingId === record.uuid" @click="confirmDelete(record)">
+              删除
+            </a-button>
+          </template>
+        </template>
+      </a-table>
+    </a-card>
+
 
     <a-card title="知识库对话" style="margin-top: 12px">
       <div class="chat-wrap">
@@ -121,9 +143,15 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { message } from 'ant-design-vue'
+import { message, Modal } from 'ant-design-vue'
 import type { ExternalKnowledgeItem } from '@/api/knowledge'
-import { externalKnowledgeSearch, listKnowledgeBases, syncKnowledgeBases, postKnowledgeChatStream } from '@/api/knowledge'
+import {
+  externalKnowledgeSearch,
+  listKnowledgeBases,
+  syncKnowledgeBases,
+  deleteKnowledgeBaseSyncRecord,
+  postKnowledgeChatStream
+} from '@/api/knowledge'
 import { listModels } from '@/api/models'
 
 const syncing = ref(false)
@@ -137,6 +165,15 @@ const dialogResults = ref<ExternalKnowledgeItem[]>([])
 const modelOptions = ref<{ label: string; value: string }[]>([])
 
 const knowledgeBaseOptions = ref<{ label: string; value: string }[]>([])
+const knowledgeBaseRows = ref<{ uuid: string; name: string; updated_at?: string | null }[]>([])
+const listLoading = ref(false)
+const deletingId = ref<string>()
+const knowledgeBaseColumns = [
+  { title: '知识库名称', dataIndex: 'name', key: 'name' },
+  { title: '知识库 ID', dataIndex: 'uuid', key: 'uuid' },
+  { title: '更新时间', dataIndex: 'updated_at', key: 'updated_at', width: 200 },
+  { title: '操作', key: 'actions', width: 100 }
+]
 
 function filterOption(input: string, option?: { label: string; value: string }) {
   const v = (input || '').toLowerCase()
@@ -146,13 +183,44 @@ function filterOption(input: string, option?: { label: string; value: string }) 
 }
 
 async function loadKnowledgeBases() {
-  const res = await listKnowledgeBases(true)
-  const items = Array.isArray(res.data?.items) ? res.data.items : []
-  // 下拉仅展示名称；value 仍为 uuid（用于接口 knowledge_base_ids）
-  knowledgeBaseOptions.value = items.map((it) => ({ label: it.name, value: it.uuid }))
-  if (!dialogKnowledgeBase.value && knowledgeBaseOptions.value.length) {
-    dialogKnowledgeBase.value = knowledgeBaseOptions.value[0].value
+  listLoading.value = true
+  try {
+    const res = await listKnowledgeBases(false)
+    const items = Array.isArray(res.data?.items) ? res.data.items : []
+    knowledgeBaseRows.value = items
+    // 对话/检索下拉仅展示启用项
+    const enabledItems = items.filter((it) => Number(it.enabled ?? 1) === 1)
+    knowledgeBaseOptions.value = enabledItems.map((it) => ({ label: it.name, value: it.uuid }))
+    if (!dialogKnowledgeBase.value && knowledgeBaseOptions.value.length) {
+      dialogKnowledgeBase.value = knowledgeBaseOptions.value[0].value
+    }
+  } finally {
+    listLoading.value = false
   }
+}
+
+function confirmDelete(record: { uuid: string; name: string }) {
+  Modal.confirm({
+    title: '确认删除该同步记录？',
+    content: `将仅删除本地同步记录：${record.name}（${record.uuid}），不会删除外部源数据。`,
+    okText: '确认删除',
+    okType: 'danger',
+    cancelText: '取消',
+    async onOk() {
+      deletingId.value = record.uuid
+      try {
+        const res = await deleteKnowledgeBaseSyncRecord(record.uuid)
+        if (res.data?.deleted) {
+          message.success('删除成功')
+        } else {
+          message.warning('该记录不存在或已删除')
+        }
+        await loadKnowledgeBases()
+      } finally {
+        deletingId.value = undefined
+      }
+    }
+  })
 }
 
 async function syncBases() {

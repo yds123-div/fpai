@@ -172,6 +172,38 @@ const SESSION_CACHE_TTL_MS = 60 * 1000
 const sessionCache = new Map()
 
 let abortStream = null
+function createTrace() {
+  return {
+    requestId: '',
+    t0: 0,
+    t1: 0,
+    t8: 0,
+    t9: 0,
+    firstChunkLogged: false,
+    firstPaintLogged: false,
+  }
+}
+
+function roundMs(v) {
+  return Math.round(Number(v || 0))
+}
+
+function logTraceStage(trace, stage, extra = {}) {
+  if (!trace?.requestId) return
+  console.info('[TTFT][front]', {
+    requestId: trace.requestId,
+    stage,
+    ...extra,
+  })
+}
+
+function logFrontSummary(trace, extra = {}) {
+  if (!trace?.requestId) return
+  console.info(
+    `[TTFT_SUMMARY_FRONT] requestId=${trace.requestId} ttft_total_ms=${roundMs(trace.t9 - trace.t0)} T6_to_T8_ms=-1`,
+    extra
+  )
+}
 
 function extractFundCodes(text) {
   const s = (text || '').toString()
@@ -473,7 +505,30 @@ function send() {
     showThinking: true,
   }
 
+  const trace = createTrace()
+  trace.t0 = performance.now()
+
   abortStream = postChatStream(body, {
+    onMeta(meta) {
+      if (!meta) return
+      if (meta.requestId) {
+        trace.requestId = String(meta.requestId)
+      }
+      if (meta.t1RequestSentAt) {
+        trace.t1 = Number(meta.t1RequestSentAt)
+        logTraceStage(trace, 'T1_front_request_sent', {
+          t0ToT1Ms: roundMs(trace.t1 - trace.t0),
+        })
+      }
+      if (meta.t8FirstChunkAt && !trace.firstChunkLogged) {
+        trace.firstChunkLogged = true
+        trace.t8 = Number(meta.t8FirstChunkAt)
+        logTraceStage(trace, 'T8_front_first_chunk_received', {
+          t1ToT8Ms: roundMs(trace.t8 - trace.t1),
+          t0ToT8Ms: roundMs(trace.t8 - trace.t0),
+        })
+      }
+    },
     onStatus(data) {
       const stage = data?.stage || ''
       const message = data?.message || ''
@@ -483,6 +538,17 @@ function send() {
     onMessage(ev) {
       const t = ev?.text ?? (typeof ev === 'string' ? ev : '')
       if (t) streamingRaw.value += t
+      if (t && !trace.firstPaintLogged) {
+        nextTick(() => {
+          if (trace.firstPaintLogged) return
+          trace.firstPaintLogged = true
+          trace.t9 = performance.now()
+          logTraceStage(trace, 'T9_front_first_char_painted', {
+            t8ToT9Ms: roundMs(trace.t9 - trace.t8),
+            t0ToT9Ms: roundMs(trace.t9 - trace.t0),
+          })
+        })
+      }
       scrollToBottom()
     },
     onCitation(c) {
@@ -525,12 +591,28 @@ function send() {
         setCachedSession(sessionId.value, messages.value)
       }
       loading.value = false
+      if (trace.firstPaintLogged) {
+        logTraceStage(trace, 'TTFT_front_summary', {
+          ttftMs: roundMs(trace.t9 - trace.t0),
+        })
+        logFrontSummary(trace, {
+          T0_to_T1_ms: roundMs(trace.t1 - trace.t0),
+          T1_to_T8_ms: roundMs(trace.t8 - trace.t1),
+          T8_to_T9_ms: roundMs(trace.t9 - trace.t8),
+        })
+      }
       scrollToBottom()
     },
     onError(err) {
       streamingRaw.value = ''
       loading.value = false
       errorMsg.value = err?.message || '请求失败，请重试'
+      if (trace.requestId) {
+        logTraceStage(trace, 'TTFT_front_error', {
+          message: errorMsg.value,
+          t0ToNowMs: roundMs(performance.now() - trace.t0),
+        })
+      }
     },
   })
 }

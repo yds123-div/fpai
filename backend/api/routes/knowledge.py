@@ -261,6 +261,49 @@ async def sync_bases():
         )
 
 
+@router.delete("/bases/{kb_id}")
+async def delete_base(kb_id: str):
+    """
+    删除本地已同步知识库记录（安全删除）：
+    - 仅删除本地 knowledge_bases 映射记录
+    - 不删除外部知识库源系统数据
+    """
+    target_id = (kb_id or "").strip()
+    if not target_id:
+        return JSONResponse(
+            status_code=200,
+            content=envelope(code=ErrorCode.VALIDATION_ERROR, message="kb_id 不能为空", data=None),
+        )
+    try:
+        from knowledge.store import delete_knowledge_base
+
+        out = delete_knowledge_base(target_id)
+        deleted = bool(out.get("deleted"))
+        logger.info(
+            "[KNOWLEDGE_SYNC_DELETE] local_only=true kb_id=%s deleted=%s affected=%s",
+            target_id,
+            deleted,
+            out.get("affected", 0),
+        )
+        return JSONResponse(
+            status_code=200,
+            content=envelope(
+                code=ErrorCode.OK,
+                message="ok",
+                data={
+                    "id": target_id,
+                    "deleted": deleted,
+                    "scope": "local_sync_only",
+                },
+            ),
+        )
+    except Exception:
+        return JSONResponse(
+            status_code=200,
+            content=envelope(code=ErrorCode.INTERNAL_ERROR, message=message_for(ErrorCode.INTERNAL_ERROR), data=None),
+        )
+
+
 @router.post("/external-search")
 async def external_search(body: ExternalKnowledgeQuery):
     """
