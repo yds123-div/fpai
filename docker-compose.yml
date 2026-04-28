@@ -1,4 +1,26 @@
 services:
+  mysql:
+    image: mysql:8.4.0
+    environment:
+      MYSQL_ROOT_PASSWORD: "k2q3#k5f"
+      MYSQL_DATABASE: fpai
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    networks:
+      - fpai-net
+
   backend:
     build:
       context: ./backend
@@ -9,9 +31,14 @@ services:
       PORT: 8000
       HOST: 0.0.0.0
       LOG_LEVEL: INFO
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
     env_file:
       # 在宿主机准备 backend/.env（包含 MySQL/Redis/MinIO/模型网关等密钥）
       - ./backend/.env
+    depends_on:
+      mysql:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - fpai-net
@@ -31,3 +58,6 @@ services:
 networks:
   fpai-net:
     driver: bridge
+
+volumes:
+  mysql-data:
