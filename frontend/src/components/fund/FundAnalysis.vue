@@ -107,7 +107,6 @@ function extractFundCodeFromSections(sections: AnalysisSection[]): string {
 
 function isLowSignalChart(chart: ChartConfig): boolean {
   const id = chart.id || ''
-  const title = chart.title || ''
   // 低信息增量图先不面向用户展示，避免“图看起来高级但帮助决策有限”。
   return /^style_radar$/i.test(id)
 }

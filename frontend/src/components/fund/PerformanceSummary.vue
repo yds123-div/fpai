@@ -324,31 +324,6 @@ const inceptionPerf = computed(() => {
   return { ret, rank }
 })
 
-const metricExtractionDebug = computed(() => {
-  const text = props.section.content || ''
-  const structuredRows = parseStructuredPerfRows(text)
-  const structuredBlock = (() => {
-    const start = text.indexOf('【结构化业绩数据】')
-    const end = text.indexOf(STRUCTURED_PERF_DELIM)
-    if (start === -1 || end === -1 || end <= start) return ''
-    return text.slice(start, end)
-  })()
-  const sharpeMatch = text.match(/夏普比率(?:维持在|在)?[：:\s]*([+-]?\d+(?:\.\d+)?(?:\s*[-~至]\s*[+-]?\d+(?:\.\d+)?)?)/)
-    || text.match(/夏普(?:维持在|在)?[：:\s]*([+-]?\d+(?:\.\d+)?(?:\s*[-~至]\s*[+-]?\d+(?:\.\d+)?)?)/)
-  const volMatch = text.match(/年化波动率(?:较低|较高|维持在|在)?[^\d+-]*([+-]?\d+(?:\.\d+)?%(?:\s*[-~至]\s*[+-]?\d+(?:\.\d+)?%)?)/)
-    || text.match(/波动率(?:较低|较高|维持在|在)?[^\d+-]*([+-]?\d+(?:\.\d+)?%(?:\s*[-~至]\s*[+-]?\d+(?:\.\d+)?%)?)/)
-  return {
-    structuredRowsCount: structuredRows.length,
-    structuredPeriods: structuredRows.map((r) => r.period),
-    structuredBlockHasSharpe: /夏普/.test(structuredBlock),
-    structuredBlockHasVolatility: /波动/.test(structuredBlock),
-    textHasSharpeKeyword: /夏普/.test(text),
-    textHasVolatilityKeyword: /波动/.test(text),
-    sharpeMatch: sharpeMatch?.[1] || '',
-    volatilityMatch: volMatch?.[1] || '',
-  }
-})
-
 const riskPeriod = ref('')
 const riskRows = computed(() => {
   const structured = parseStructuredPerfRows(props.section.content || '')
