@@ -68,6 +68,12 @@ const routes: RouteRecordRaw[] = [
         name: 'FpaiKnowledge',
         component: () => import('@/views/fpai/KnowledgeView.vue'),
         meta: { title: '知识库检索' }
+      },
+      {
+        path: 'fpai/rm',
+        name: 'FpaiRmWorkspace',
+        component: () => import('@/views/fpai/RmWorkspaceView.vue'),
+        meta: { title: 'RM工作台' }
       }
     ]
   },

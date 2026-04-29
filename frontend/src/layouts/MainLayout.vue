@@ -57,6 +57,13 @@
               <UnorderedListOutlined />
               <span>产品列表</span>
             </a>
+            <a
+              :class="['nav-link', { 'active': isActiveMenu.rm }]"
+              @click="handleNav('/fpai/rm')"
+            >
+              <AppstoreOutlined />
+              <span>RM工作台</span>
+            </a>
           </div>
         </div>
         <div class="conversation-history">
@@ -168,6 +175,7 @@ import {
   PlusOutlined,
   SwapOutlined,
   StarOutlined,
+  AppstoreOutlined,
   UnorderedListOutlined,
   UserOutlined,
   SettingOutlined,
@@ -238,7 +246,8 @@ const isActiveMenu = computed(() => {
     report: path === '/fpai/report',
     evidence: path === '/fpai/evidence',
     feedback: path === '/fpai/feedback',
-    products: path === '/fpai/products'
+    products: path === '/fpai/products',
+    rm: path === '/fpai/rm'
   }
 })
 

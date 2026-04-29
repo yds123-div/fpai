@@ -149,3 +149,56 @@ inclusion: manual
 - **4xx 段**：客户端错误（参数、鉴权、限流等）
 - **5xx 段**：服务端错误
 - 当前子码见 `backend/pkg/codes.py`
+
+---
+
+## Decision 012：对话编排内核演进为 FundAgentRouter + Coordinator
+
+**标题：** 聊天主链路从"意图槽位 + AgentScope 推理驱动"演进为"FundAgentRouter + Coordinator 任务规划与路由驱动"
+
+**原因：**
+- 当前基金业务场景下，需要更强的任务可控性（单任务直达、多任务并行、结果融合）
+- Coordinator 规划更易满足业务可解释性与稳定性要求
+- 便于把"阶段进度、子任务执行、结构化结果"统一纳入 API 流式协议和审计链路
+- 历史 Decision 007/009（AgentScope）作为演进背景保留，不再作为当前主链路约束
+
+**日期：** 2026-04
+
+---
+
+## Decision 013：SSE 事件契约升级并引入 structuredOutputs
+
+**标题：** SSE 事件从 `message/citation/done/error` 升级为 `message_start/message_delta/status/structured_update/citation/done/error`，并在 done 事件兜底回传 `structuredOutputs[]`
+
+**原因：**
+- 支持"首包可见、增量可见、进度可见、结构化可见"的前端体验
+- `structured_update` 可提前渲染结构化结果，`done.structuredOutputs[]` 作为最终兜底，增强链路容错性
+- 与当前 chat 路由实现和前端事件消费逻辑一致，避免文档与实现偏差
+
+**日期：** 2026-04
+
+---
+
+## Decision 014：产品检索采用本地库优先 + data_access 回退
+
+**标题：** 产品搜索路径采用"双通道"策略：本地产品库优先，未命中时回退 `data_access` 统一接口
+
+**原因：**
+- 本地产品库可承接同步数据后的高频查询，降低外部依赖波动对交互时延的影响
+- `data_access` 回退保留多机构多数据源扩展能力，兼顾近期效率与长期架构一致性
+- 与 API 层 `/products/search` 的当前实现一致
+
+**日期：** 2026-04
+
+---
+
+## Decision 015：会话恢复以 content_summary 为主，结构化结果持久化后补
+
+**标题：** 当前会话恢复先以消息摘要 `content_summary` 为主，`structuredOutputs` 完整持久化列为后续演进项
+
+**原因：**
+- 现阶段 chat/SSE 已可透传结构化结果，优先保证链路可用与交互体验
+- 结构化结果未完全持久化会影响刷新后一致性，需后续补齐"存储模型 + 读取恢复"设计（如 MySQL JSON 列或对象存储索引化）
+- 先明确"现状 vs 目标"，避免架构文档把未完成能力误写成已落地
+
+**日期：** 2026-04

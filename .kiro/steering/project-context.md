@@ -16,7 +16,7 @@ inclusion: auto
 | 层级 | 技术 | 说明 |
 |------|------|------|
 | **前端** | Vue3、Vite、Ant Design Vue、ECharts | H5 工作台；SSE/WebSocket 流式与实时通信 |
-| **多智能体框架** | AgentScope | ReAct、Toolkit、MsgHub；Python 3.10+ |
+| **编排与智能体运行** | FundAgentRouter + Coordinator（当前）/ AgentScope（历史） | 当前主链路为 Coordinator 任务规划 + 业务 Agent 路由执行；AgentScope 作为历史演进背景保留 |
 | **后端** | **全 Python** | FastAPI/Starlette 异步框架 |
 | **关系型数据库** | MySQL | 会话/消息、配置与策略、FAQ、反馈、审计索引 |
 | **缓存与限流** | Redis | 会话上下文、热点缓存、限流、幂等 |
@@ -72,7 +72,7 @@ fpai/
   - `POST /feedback` - 反馈
   - `GET /products/search` - 产品列表
 - **统一响应**：`code`、`message`、`data`
-- **流式**：SSE 事件类型 `message`、`citation`、`done`、`error`
+- **流式**：SSE 事件类型 `message_start`、`message_delta`、`status`、`structured_update`、`citation`、`done`、`error`
 
 ## 环境与命令
 
@@ -91,7 +91,8 @@ fpai/
 
 ## 约定
 
-- **大模型调用**：智能体内统一通过 **AgentScope 的 ReActAgent** 模式
+- **编排约定（当前）**：聊天主链路使用 `FundAgentRouter + Coordinator`。Coordinator 负责任务规划（单任务/多任务），并按任务类型路由到业务 Agent；多任务可并行执行并融合结果。
+- **大模型调用**：业务 Agent 内优先通过统一运行时封装调用模型（支持流式 token 回调与进度回调）
 - **分支策略**：`main` 保护；功能开发使用 `feature/*`，修复使用 `fix/*`
 - **提交规范**：Conventional Commits（`feat:`、`fix:`、`docs:`、`refactor:` 等）
 - **环境变量**：敏感配置使用环境变量，不提交 `.env`；提供 `.env.example`
