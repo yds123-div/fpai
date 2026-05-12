@@ -57,3 +57,6 @@ uploads/
 # Temporary files
 tmp/
 temp/
+
+# Graphify：可提交 graph.json / graph.html，忽略抽取缓存
+graphify-out/cache/

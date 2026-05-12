@@ -1,0 +1,19 @@
+# Graphify — 减小图谱噪声与体积（语法同 .gitignore）
+.pytest_cache/
+__pycache__/
+.venv/
+venv/
+node_modules/
+dist/
+.git/
+.idea/
+.vscode/
+.windsurf/
+.kiro/
+uploads/
+storage/
+graphify-out/cache/
+*.min.js
+package-lock.json
+frontend/node_modules/
+backend/.venv/

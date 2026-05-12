@@ -11,7 +11,6 @@ import asyncio
 import json
 import re
 import uuid
-from dataclasses import asdict, is_dataclass
 from typing import Any, AsyncGenerator
 
 from fastapi import APIRouter, Depends, Request
@@ -38,8 +37,6 @@ def _trace(trace_id: str | None) -> dict[str, Any]:
 def _jsonable(obj: Any) -> Any:
     if obj is None:
         return None
-    if is_dataclass(obj):
-        return asdict(obj)
     if hasattr(obj, "to_dict") and callable(getattr(obj, "to_dict")):
         return obj.to_dict()
     return obj
@@ -109,8 +106,7 @@ async def compare(body: CompareBody, request: Request, auth=Depends(get_auth_con
         from agents.fund_agent_framework import run_agent_query
         
         # 构造产品对比问题
-        product_ids_str = "、".join(ids)
-        question = f"请对比分析以下基金产品：{product_ids_str}"
+        question = f"请对比分析以下基金产品：{'、'.join(ids)}"
         
         result = await asyncio.to_thread(
             run_agent_query,
@@ -169,7 +165,7 @@ async def compare_stream(body: CompareBody, request: Request, auth=Depends(get_a
                     stream_callback=_stream_token,
                     show_thinking=False,
                 )
-                question = f"请对以下基金代码进行对比分析：{'、'.join(ids)}"
+                question = f"请对比分析以下基金产品：{'、'.join(ids)}"
                 text = await agent.run(question, ctx)
                 await q.put(("done", {"text": text or ""}))
                 await q.put(("__end__", None))

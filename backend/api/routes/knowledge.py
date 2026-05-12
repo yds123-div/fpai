@@ -106,7 +106,6 @@ async def _external_kb_search(question: str, knowledge_base_id: str, top_k: int)
     
     if not base_url or not enabled:
         return []
-        return []
     try:
         import httpx
     except ImportError:
