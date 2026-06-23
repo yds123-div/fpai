@@ -1,0 +1,51 @@
+Metadata-Version: 2.4
+Name: fpai-backend
+Version: 0.1.0
+Summary: 金融产品解析智能体后端（财富业务全场景智能问答与辅助决策）
+Author: FPAI Team
+License: Proprietary
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: fastapi>=0.109.0
+Requires-Dist: uvicorn[standard]>=0.27.0
+Requires-Dist: python-multipart>=0.0.6
+Requires-Dist: python-dotenv>=1.0.0
+Requires-Dist: akshare>=1.10.0
+Requires-Dist: pandas>=1.5.0
+Requires-Dist: pymysql>=1.1.0
+Requires-Dist: cryptography>=42.0.0
+Requires-Dist: bcrypt>=4.0.0
+Requires-Dist: PyJWT>=2.8.0
+Requires-Dist: redis>=5.0.0
+Requires-Dist: minio>=7.2.0
+Requires-Dist: pymilvus>=2.3.0
+Requires-Dist: httpx>=0.26.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.23.0; extra == "dev"
+Requires-Dist: httpx>=0.26.0; extra == "dev"
+Provides-Extra: agent
+Requires-Dist: agentscope>=0.0.8; extra == "agent"
+
+# 金融产品解析智能体 - 后端
+
+一期全 Python 模块化单体，与 `.cursor/memory/project_context.md`、`technical_design.md` 一致。
+
+## 环境
+
+- Python 3.10+
+- 依赖：`pip install -r requirements.txt` 或 `pip install -e .`
+
+## 启动
+
+```bash
+# 在 backend 目录下
+uvicorn api.main:app --reload
+```
+
+- 健康检查：`GET /health`
+- API 根：`GET /api/v1`
+
+## 环境变量
+
+复制 `.env.example` 为 `.env` 并填写实际值（DB、Redis、Milvus、MinIO、模型地址等）。勿提交 `.env`。

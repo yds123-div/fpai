@@ -166,16 +166,12 @@ async def update_external_kb_config(body: ExternalKBConfigBody, auth=Depends(get
             content=envelope(code=ErrorCode.VALIDATION_ERROR, message="启用时必须填写 base_url", data=None),
         )
     
-    # 校验 base_url 格式：不应包含 API 路径
-    if base_url and ("/api/" in base_url or "/knowledge" in base_url.lower()):
-        return JSONResponse(
-            status_code=200,
-            content=envelope(
-                code=ErrorCode.VALIDATION_ERROR, 
-                message="base_url 应该只填写基础地址（如 http://139.9.59.175:8080），不要包含 /api/ 路径", 
-                data=None
-            ),
-        )
+    # 自动将 base_url 修正为基础地址（去除路径后缀，保留 scheme+host+port）
+    if base_url:
+        from urllib.parse import urlparse
+        parsed = urlparse(base_url)
+        if parsed.scheme and parsed.netloc:
+            base_url = f"{parsed.scheme}://{parsed.netloc}"
 
     try:
         from config.store import set_config

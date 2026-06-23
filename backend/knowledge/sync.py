@@ -66,8 +66,11 @@ def sync_knowledge_bases_once() -> dict[str, Any]:
         url = (os.getenv("EXTERNAL_KB_LIST_URL") or "").strip()
         api_key = (os.getenv("EXTERNAL_KB_API_KEY") or "").strip()
     else:
-        # 从 base_url 构造列表接口地址
-        url = f"{base_url.rstrip('/')}/api/v1/knowledge-bases"
+        # 从 base_url 构造列表接口地址（自动去除路径后缀，保留 scheme+host+port）
+        from urllib.parse import urlparse
+        parsed = urlparse(base_url)
+        clean_base = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else base_url.rstrip('/')
+        url = f"{clean_base}/api/v1/knowledge-bases"
     
     if not url:
         return {"ok": False, "count": 0, "message": "未配置外部知识库地址"}

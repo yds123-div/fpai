@@ -12,7 +12,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/',
     component: () => import('@/layouts/MainLayout.vue'),
-    redirect: '/home',
+    redirect: '/chat',
     meta: { requiresAuth: true },
     children: [
       {
@@ -22,7 +22,7 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '首页' }
       },
       {
-        path: 'fpai/chat',
+        path: 'chat',
         name: 'FpaiChat',
         component: () => import('@/views/fpai/ChatView.vue'),
         meta: { title: '智能对话' }

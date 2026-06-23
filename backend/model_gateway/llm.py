@@ -39,23 +39,33 @@ def _create_agentscope_model(llm: LLMConfig, *, enable_thinking: bool = False):
     base_url = (llm.base_url or "").strip()
     api_key = (llm.api_key or "").strip()
     gen = {"temperature": llm.temperature, "max_tokens": llm.max_tokens}
+
+    def _try_build(model_cls: Any, kwargs: dict) -> Any | None:
+        """尝试用 enable_thinking 创建模型；若不支持则回退到不带该参数。"""
+        for attempt_kwargs in (kwargs, {k: v for k, v in kwargs.items() if k != "enable_thinking"}):
+            try:
+                return model_cls(**attempt_kwargs)
+            except TypeError:
+                continue
+        return None
+
     if base_url:
-        return OpenAIChatModel(
+        return _try_build(OpenAIChatModel, dict(
             model_name=llm.model or "qwen3-32b",
             api_key=api_key or None,
             stream=False,
             client_kwargs={"base_url": base_url},
             generate_kwargs=gen,
             enable_thinking=bool(enable_thinking),
-        )
+        ))
     if api_key:
-        return DashScopeChatModel(
+        return _try_build(DashScopeChatModel, dict(
             model_name=llm.model or "qwen3-32b",
             api_key=api_key,
             stream=False,
             generate_kwargs=gen,
             enable_thinking=bool(enable_thinking),
-        )
+        ))
     return None
 
 
@@ -153,7 +163,10 @@ def llm_chat(
     key = "llm"
     if is_open(key):
         raise ModelGatewayError("LLM 熔断中，请稍后重试")
-    agentscope_model = _create_agentscope_model(llm, enable_thinking=enable_thinking)
+    try:
+        agentscope_model = _create_agentscope_model(llm, enable_thinking=enable_thinking)
+    except Exception:
+        agentscope_model = None
     if agentscope_model is not None:
         try:
             try:
@@ -174,10 +187,46 @@ def llm_chat(
             return content or ""
         except Exception as e:
             record_failure(key, cfg.circuit_breaker_threshold, cfg.circuit_breaker_seconds)
-            if isinstance(e, ModelGatewayError):
-                raise
-            raise ModelGatewayError(f"LLM 调用失败: {e}") from e
-    raise ModelNotConfiguredError("LLM_BASE_URL 未配置且无可用的 AgentScope 模型配置")
+            logger.warning("AgentScope LLM 调用失败，尝试 httpx 直连: %s", e)
+            # fallthrough to httpx direct call below
+
+    # httpx 直连回退（AgentScope 未安装或调用失败时）
+    bu = (llm.base_url or "").strip()
+    api_key_direct = (llm.api_key or "").strip()
+    model_direct = (llm.model or "").strip()
+    if bu:
+        import re as _re2
+        import json as _json2
+        if not _re2.search(r"/v\d+$", bu.rstrip("/")):
+            bu = bu.rstrip("/") + "/v1"
+        url = bu.rstrip("/") + "/chat/completions"
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if api_key_direct:
+            headers["Authorization"] = f"Bearer {api_key_direct}"
+        payload: dict[str, Any] = {
+            "model": model_direct or "qwen3-32b",
+            "messages": messages,
+            "max_tokens": llm.max_tokens,
+            "temperature": llm.temperature,
+            "stream": False,
+        }
+        try:
+            import httpx as _httpx2
+        except ImportError:
+            raise ModelNotConfiguredError("httpx 未安装，无法调用 LLM")
+        try:
+            resp = _httpx2.post(url, json=payload, headers=headers, timeout=llm.timeout_seconds)
+            resp.raise_for_status()
+            data = resp.json()
+            choices = data.get("choices") or []
+            if choices:
+                content = choices[0].get("message", {}).get("content", "")
+                record_success(key)
+                return content or ""
+        except Exception as e2:
+            record_failure(key, cfg.circuit_breaker_threshold, cfg.circuit_breaker_seconds)
+            raise ModelGatewayError(f"LLM 直连调用失败: {e2}") from e2
+    raise ModelNotConfiguredError("LLM_BASE_URL 未配置且无可用的 LLM 调用方式")
 
 
 async def llm_chat_stream(
@@ -203,8 +252,9 @@ async def llm_chat_stream(
         bu = (cfg.llm.base_url or "").strip().rstrip("/")
     if not bu:
         return
-    # 兼容：base_url 若未以 /v1 结尾则补齐
-    if not bu.endswith("/v1"):
+    import re as _re
+    # 兼容：base_url 若未以 /v<N> 结尾则补齐 /v1；已有版本路径则不再追加
+    if not _re.search(r"/v\d+$", bu):
         bu = bu + "/v1"
     url = bu + "/chat/completions"
     headers: dict[str, str] = {"Content-Type": "application/json"}

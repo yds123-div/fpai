@@ -129,14 +129,22 @@ def api_root():
 def _run_dev():
     """开发时可直接 python -m api.main，端口由环境变量 PORT 指定（默认 8000）。"""
     import os
+    import socket
     import uvicorn
     port = int(os.environ.get("PORT", "8000"))
-    uvicorn.run(
+    host = os.environ.get("HOST", "0.0.0.0")
+    # 手动创建 socket 并设置 SO_REUSEADDR，避免端口 TIME_WAIT 导致 bind 失败
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind((host, port))
+    config = uvicorn.Config(
         "api.main:app",
-        host=os.environ.get("HOST", "0.0.0.0"),
+        host=host,
         port=port,
         reload=True,
     )
+    server = uvicorn.Server(config)
+    server.run(sockets=[sock])
 
 
 if __name__ == "__main__":

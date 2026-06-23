@@ -356,9 +356,9 @@ async function syncRouteSession(targetSessionId) {
   const next = String(targetSessionId || '')
   if (cur === next) return
   if (next) {
-    await router.replace({ path: '/fpai/chat', query: { sessionId: next } })
+    await router.replace({ path: '/chat', query: { sessionId: next } })
   } else {
-    await router.replace({ path: '/fpai/chat', query: {} })
+    await router.replace({ path: '/chat', query: {} })
   }
 }
 

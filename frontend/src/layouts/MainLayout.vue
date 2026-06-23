@@ -240,7 +240,7 @@ watch(
 const isActiveMenu = computed(() => {
   const path = route.path
   return {
-    chat: path === '/fpai/chat',
+    chat: path === '/chat',
     compare: path === '/fpai/compare',
     recommend: path === '/fpai/recommend',
     report: path === '/fpai/report',
@@ -251,7 +251,7 @@ const isActiveMenu = computed(() => {
   }
 })
 
-const showSessionHistory = computed(() => route.path.startsWith('/fpai/chat'))
+const showSessionHistory = computed(() => route.path.startsWith('/chat'))
 
 // 侧栏导航跳转
 const handleNav = (path: string) => {
@@ -261,7 +261,7 @@ const handleNav = (path: string) => {
 const handleNewConversation = () => {
   if (showSessionHistory.value && chatBusy.value) return
   storage.remove(SESSION_STORAGE_KEY)
-  router.push({ path: '/fpai/chat', query: {} })
+  router.push({ path: '/chat', query: {} })
 }
 
 function onChatLoadingChange(ev: Event) {

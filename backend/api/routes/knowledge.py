@@ -110,7 +110,10 @@ async def _external_kb_search(question: str, knowledge_base_id: str, top_k: int)
         import httpx
     except ImportError:
         return []
-    url = f"{base_url.rstrip('/')}/api/v1/knowledge-search"
+    from urllib.parse import urlparse
+    parsed = urlparse(base_url)
+    clean_base = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else base_url.rstrip('/')
+    url = f"{clean_base}/api/v1/knowledge-search"
     payload: dict[str, Any] = {
         "query": (question or "").strip(),
         "knowledge_base_ids": [knowledge_base_id] if (knowledge_base_id or "").strip() else [],
@@ -351,7 +354,10 @@ async def external_search(body: ExternalKnowledgeQuery):
         )
 
     # 目标接口：{base_url}/api/v1/knowledge-search
-    url = f"{base_url.rstrip('/')}/api/v1/knowledge-search"
+    from urllib.parse import urlparse
+    parsed = urlparse(base_url)
+    clean_base = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else base_url.rstrip('/')
+    url = f"{clean_base}/api/v1/knowledge-search"
     payload: dict[str, Any] = {
         "query": query,
         "knowledge_base_ids": [body.knowledge_base_id] if body.knowledge_base_id else [],

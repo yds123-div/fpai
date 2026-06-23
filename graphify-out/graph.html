@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Graphify 增强视图 · fpai</title>
-<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<script src="vis-network.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/vis-network@9.1.9/standalone/umd/vis-network.min.js'"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: #0b0f14; color: #e6edf3; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
@@ -83,7 +83,7 @@
     <label><input type="checkbox" id="f-concept" checked> 概念</label>
   </div>
 </div>
-<p class="hint">缩放/拖拽时边保持绘制 · 「分层树状」适合看调用/依赖上下级 · 含环时层次可能交叉 · 「社区聚合」与分层互斥（聚合时自动关分层）</p>
+<p class="hint">缩放/拖拽时边保持绘制 · 「分层树状」为<strong>可读子图</strong>（≤200 节点 / 400 边，固定坐标）· 「社区聚合」与分层互斥（聚合时自动关分层）</p>
 <div id="main">
   <div class="graph-stack">
     <div id="graph-global"></div>
@@ -105,8 +105,17 @@
         <input type="checkbox" id="cb-aggregate"> 社区聚合概览（点社区展开）
       </label>
       <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#cbd5e1;cursor:pointer;margin-top:10px;user-select:none;">
-        <input type="checkbox" id="cb-hierarchical"> 分层树状布局（自上而下，沿有向边）
+        <input type="checkbox" id="cb-hierarchical"> 分层树状布局（可读子图 · 固定坐标 · 自上而下）
       </label>
+      <div id="tree-hier-params" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid #1f2937;font-size:12px;color:#94a3b8;">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+          <label>最大层数 <input type="number" id="tree-max-depth" value="4" min="1" max="12" style="width:48px;background:#0b0f14;border:1px solid #334155;color:#e2e8f0;border-radius:4px;padding:2px 4px"></label>
+          <label>最多节点 <input type="number" id="tree-max-nodes" value="200" min="20" max="500" style="width:52px;background:#0b0f14;border:1px solid #334155;color:#e2e8f0;border-radius:4px;padding:2px 4px"></label>
+          <label>最多边 <input type="number" id="tree-max-edges" value="400" min="50" max="1200" style="width:56px;background:#0b0f14;border:1px solid #334155;color:#e2e8f0;border-radius:4px;padding:2px 4px"></label>
+          <label>每节点子数 <input type="number" id="tree-max-children" value="12" min="4" max="40" style="width:48px;background:#0b0f14;border:1px solid #334155;color:#e2e8f0;border-radius:4px;padding:2px 4px"></label>
+        </div>
+        <div style="margin-top:6px;font-size:11px;color:#64748b">双击节点以之为中心重算子图；双击「还有 N 个…」展开该向分支。拖拽/缩放时自动隐藏边以减负。</div>
+      </div>
     </div>
     <div id="info-panel">
       <h3>节点详情</h3>
@@ -130,11 +139,505 @@ const LEGEND = [{"cid": 0, "color": "#4E79A7", "label": "Community 0", "count": 
 const META_NODES_RAW = [{"id": "__meta_0", "cid": 0, "label": "Community 0 (71)", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 48.0, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 0 · 71 个节点 · 点击展开该社区"}, {"id": "__meta_1", "cid": 1, "label": "Community 1 (65)", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 46.5, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 1 · 65 个节点 · 点击展开该社区"}, {"id": "__meta_2", "cid": 2, "label": "Community 2 (63)", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 46.0, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 2 · 63 个节点 · 点击展开该社区"}, {"id": "__meta_3", "cid": 3, "label": "Community 3 (62)", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 45.8, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 3 · 62 个节点 · 点击展开该社区"}, {"id": "__meta_4", "cid": 4, "label": "Community 4 (59)", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 45.0, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 4 · 59 个节点 · 点击展开该社区"}, {"id": "__meta_5", "cid": 5, "label": "Community 5 (59)", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 45.0, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 5 · 59 个节点 · 点击展开该社区"}, {"id": "__meta_6", "cid": 6, "label": "Community 6 (54)", "color": {"background": "#B07AA1", "border": "#B07AA1", "highlight": {"background": "#ffffff", "border": "#B07AA1"}}, "size": 43.7, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 6 · 54 个节点 · 点击展开该社区"}, {"id": "__meta_7", "cid": 7, "label": "Community 7 (49)", "color": {"background": "#FF9DA7", "border": "#FF9DA7", "highlight": {"background": "#ffffff", "border": "#FF9DA7"}}, "size": 42.2, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 7 · 49 个节点 · 点击展开该社区"}, {"id": "__meta_8", "cid": 8, "label": "Community 8 (48)", "color": {"background": "#9C755F", "border": "#9C755F", "highlight": {"background": "#ffffff", "border": "#9C755F"}}, "size": 42.0, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 8 · 48 个节点 · 点击展开该社区"}, {"id": "__meta_9", "cid": 9, "label": "Community 9 (46)", "color": {"background": "#BAB0AC", "border": "#BAB0AC", "highlight": {"background": "#ffffff", "border": "#BAB0AC"}}, "size": 41.4, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 9 · 46 个节点 · 点击展开该社区"}, {"id": "__meta_10", "cid": 10, "label": "Community 10 (46)", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 41.4, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 10 · 46 个节点 · 点击展开该社区"}, {"id": "__meta_11", "cid": 11, "label": "Community 11 (44)", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 40.8, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 11 · 44 个节点 · 点击展开该社区"}, {"id": "__meta_12", "cid": 12, "label": "Community 12 (34)", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 37.5, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 12 · 34 个节点 · 点击展开该社区"}, {"id": "__meta_13", "cid": 13, "label": "Community 13 (31)", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 36.5, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 13 · 31 个节点 · 点击展开该社区"}, {"id": "__meta_14", "cid": 14, "label": "Community 14 (31)", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 36.5, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 14 · 31 个节点 · 点击展开该社区"}, {"id": "__meta_15", "cid": 15, "label": "Community 15 (28)", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 35.4, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 15 · 28 个节点 · 点击展开该社区"}, {"id": "__meta_16", "cid": 16, "label": "Community 16 (28)", "color": {"background": "#B07AA1", "border": "#B07AA1", "highlight": {"background": "#ffffff", "border": "#B07AA1"}}, "size": 35.4, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 16 · 28 个节点 · 点击展开该社区"}, {"id": "__meta_17", "cid": 17, "label": "Community 17 (25)", "color": {"background": "#FF9DA7", "border": "#FF9DA7", "highlight": {"background": "#ffffff", "border": "#FF9DA7"}}, "size": 34.2, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 17 · 25 个节点 · 点击展开该社区"}, {"id": "__meta_18", "cid": 18, "label": "Community 18 (23)", "color": {"background": "#9C755F", "border": "#9C755F", "highlight": {"background": "#ffffff", "border": "#9C755F"}}, "size": 33.4, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 18 · 23 个节点 · 点击展开该社区"}, {"id": "__meta_19", "cid": 19, "label": "Community 19 (23)", "color": {"background": "#BAB0AC", "border": "#BAB0AC", "highlight": {"background": "#ffffff", "border": "#BAB0AC"}}, "size": 33.4, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 19 · 23 个节点 · 点击展开该社区"}, {"id": "__meta_20", "cid": 20, "label": "Community 20 (22)", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 32.9, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 20 · 22 个节点 · 点击展开该社区"}, {"id": "__meta_21", "cid": 21, "label": "Community 21 (21)", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 32.5, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 21 · 21 个节点 · 点击展开该社区"}, {"id": "__meta_22", "cid": 22, "label": "Community 22 (21)", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 32.5, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 22 · 21 个节点 · 点击展开该社区"}, {"id": "__meta_23", "cid": 23, "label": "Community 23 (20)", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 32.0, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 23 · 20 个节点 · 点击展开该社区"}, {"id": "__meta_24", "cid": 24, "label": "Community 24 (19)", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 31.6, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 24 · 19 个节点 · 点击展开该社区"}, {"id": "__meta_25", "cid": 25, "label": "Community 25 (19)", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 31.6, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 25 · 19 个节点 · 点击展开该社区"}, {"id": "__meta_26", "cid": 26, "label": "Community 26 (18)", "color": {"background": "#B07AA1", "border": "#B07AA1", "highlight": {"background": "#ffffff", "border": "#B07AA1"}}, "size": 31.1, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 26 · 18 个节点 · 点击展开该社区"}, {"id": "__meta_27", "cid": 27, "label": "Community 27 (18)", "color": {"background": "#FF9DA7", "border": "#FF9DA7", "highlight": {"background": "#ffffff", "border": "#FF9DA7"}}, "size": 31.1, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 27 · 18 个节点 · 点击展开该社区"}, {"id": "__meta_28", "cid": 28, "label": "Community 28 (18)", "color": {"background": "#9C755F", "border": "#9C755F", "highlight": {"background": "#ffffff", "border": "#9C755F"}}, "size": 31.1, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 28 · 18 个节点 · 点击展开该社区"}, {"id": "__meta_29", "cid": 29, "label": "Community 29 (17)", "color": {"background": "#BAB0AC", "border": "#BAB0AC", "highlight": {"background": "#ffffff", "border": "#BAB0AC"}}, "size": 30.6, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 29 · 17 个节点 · 点击展开该社区"}, {"id": "__meta_30", "cid": 30, "label": "Community 30 (16)", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 30.1, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 30 · 16 个节点 · 点击展开该社区"}, {"id": "__meta_31", "cid": 31, "label": "Community 31 (16)", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 30.1, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 31 · 16 个节点 · 点击展开该社区"}, {"id": "__meta_32", "cid": 32, "label": "Community 32 (15)", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 29.6, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 32 · 15 个节点 · 点击展开该社区"}, {"id": "__meta_33", "cid": 33, "label": "Community 33 (14)", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 29.1, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 33 · 14 个节点 · 点击展开该社区"}, {"id": "__meta_34", "cid": 34, "label": "Community 34 (13)", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 28.5, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 34 · 13 个节点 · 点击展开该社区"}, {"id": "__meta_35", "cid": 35, "label": "Community 35 (13)", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 28.5, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 35 · 13 个节点 · 点击展开该社区"}, {"id": "__meta_36", "cid": 36, "label": "Community 36 (12)", "color": {"background": "#B07AA1", "border": "#B07AA1", "highlight": {"background": "#ffffff", "border": "#B07AA1"}}, "size": 28.0, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 36 · 12 个节点 · 点击展开该社区"}, {"id": "__meta_37", "cid": 37, "label": "Community 37 (12)", "color": {"background": "#FF9DA7", "border": "#FF9DA7", "highlight": {"background": "#ffffff", "border": "#FF9DA7"}}, "size": 28.0, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 37 · 12 个节点 · 点击展开该社区"}, {"id": "__meta_38", "cid": 38, "label": "Community 38 (10)", "color": {"background": "#9C755F", "border": "#9C755F", "highlight": {"background": "#ffffff", "border": "#9C755F"}}, "size": 26.8, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 38 · 10 个节点 · 点击展开该社区"}, {"id": "__meta_39", "cid": 39, "label": "Community 39 (10)", "color": {"background": "#BAB0AC", "border": "#BAB0AC", "highlight": {"background": "#ffffff", "border": "#BAB0AC"}}, "size": 26.8, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 39 · 10 个节点 · 点击展开该社区"}, {"id": "__meta_40", "cid": 40, "label": "Community 40 (9)", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 26.1, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 40 · 9 个节点 · 点击展开该社区"}, {"id": "__meta_41", "cid": 41, "label": "Community 41 (7)", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 24.7, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 41 · 7 个节点 · 点击展开该社区"}, {"id": "__meta_42", "cid": 42, "label": "Community 42 (7)", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 24.7, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 42 · 7 个节点 · 点击展开该社区"}, {"id": "__meta_43", "cid": 43, "label": "Community 43 (7)", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 24.7, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 43 · 7 个节点 · 点击展开该社区"}, {"id": "__meta_44", "cid": 44, "label": "Community 44 (7)", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 24.7, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 44 · 7 个节点 · 点击展开该社区"}, {"id": "__meta_45", "cid": 45, "label": "Community 45 (6)", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 23.9, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 45 · 6 个节点 · 点击展开该社区"}, {"id": "__meta_46", "cid": 46, "label": "Community 46 (6)", "color": {"background": "#B07AA1", "border": "#B07AA1", "highlight": {"background": "#ffffff", "border": "#B07AA1"}}, "size": 23.9, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 46 · 6 个节点 · 点击展开该社区"}, {"id": "__meta_47", "cid": 47, "label": "Community 47 (5)", "color": {"background": "#FF9DA7", "border": "#FF9DA7", "highlight": {"background": "#ffffff", "border": "#FF9DA7"}}, "size": 23.0, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 47 · 5 个节点 · 点击展开该社区"}, {"id": "__meta_48", "cid": 48, "label": "Community 48 (4)", "color": {"background": "#9C755F", "border": "#9C755F", "highlight": {"background": "#ffffff", "border": "#9C755F"}}, "size": 22.1, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 48 · 4 个节点 · 点击展开该社区"}, {"id": "__meta_49", "cid": 49, "label": "Community 49 (4)", "color": {"background": "#BAB0AC", "border": "#BAB0AC", "highlight": {"background": "#ffffff", "border": "#BAB0AC"}}, "size": 22.1, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 49 · 4 个节点 · 点击展开该社区"}, {"id": "__meta_50", "cid": 50, "label": "Community 50 (3)", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 21.0, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 50 · 3 个节点 · 点击展开该社区"}, {"id": "__meta_51", "cid": 51, "label": "Community 51 (2)", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 19.7, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 51 · 2 个节点 · 点击展开该社区"}, {"id": "__meta_52", "cid": 52, "label": "Community 52 (1)", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 18.0, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 52 · 1 个节点 · 点击展开该社区"}, {"id": "__meta_53", "cid": 53, "label": "Community 53 (1)", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 18.0, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 53 · 1 个节点 · 点击展开该社区"}, {"id": "__meta_54", "cid": 54, "label": "Community 54 (1)", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 18.0, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 54 · 1 个节点 · 点击展开该社区"}, {"id": "__meta_55", "cid": 55, "label": "Community 55 (1)", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 18.0, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 55 · 1 个节点 · 点击展开该社区"}, {"id": "__meta_56", "cid": 56, "label": "Community 56 (1)", "color": {"background": "#B07AA1", "border": "#B07AA1", "highlight": {"background": "#ffffff", "border": "#B07AA1"}}, "size": 18.0, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 56 · 1 个节点 · 点击展开该社区"}, {"id": "__meta_57", "cid": 57, "label": "Community 57 (1)", "color": {"background": "#FF9DA7", "border": "#FF9DA7", "highlight": {"background": "#ffffff", "border": "#FF9DA7"}}, "size": 18.0, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 57 · 1 个节点 · 点击展开该社区"}, {"id": "__meta_58", "cid": 58, "label": "Community 58 (1)", "color": {"background": "#9C755F", "border": "#9C755F", "highlight": {"background": "#ffffff", "border": "#9C755F"}}, "size": 18.0, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 58 · 1 个节点 · 点击展开该社区"}, {"id": "__meta_59", "cid": 59, "label": "Community 59 (1)", "color": {"background": "#BAB0AC", "border": "#BAB0AC", "highlight": {"background": "#ffffff", "border": "#BAB0AC"}}, "size": 18.0, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 59 · 1 个节点 · 点击展开该社区"}, {"id": "__meta_60", "cid": 60, "label": "Community 60 (1)", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 18.0, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 60 · 1 个节点 · 点击展开该社区"}, {"id": "__meta_61", "cid": 61, "label": "Community 61 (1)", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 18.0, "font": {"size": 13, "color": "#ffffff"}, "title": "Community 61 · 1 个节点 · 点击展开该社区"}];
 const META_EDGES_RAW = [{"id": "m_0_4_0", "from": "__meta_0", "to": "__meta_4", "label": "", "title": "5 条跨社区边", "width": 2.9917594692280547, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_0_7_1", "from": "__meta_0", "to": "__meta_7", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_0_14_2", "from": "__meta_0", "to": "__meta_14", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_1_4_3", "from": "__meta_1", "to": "__meta_4", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_1_10_4", "from": "__meta_1", "to": "__meta_10", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_1_20_5", "from": "__meta_1", "to": "__meta_20", "label": "", "title": "9 条跨社区边", "width": 3.502585092994046, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_1_21_6", "from": "__meta_1", "to": "__meta_21", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_1_28_7", "from": "__meta_1", "to": "__meta_28", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_1_38_8", "from": "__meta_1", "to": "__meta_38", "label": "", "title": "4 条跨社区边", "width": 2.8094379124341002, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_2_3_9", "from": "__meta_2", "to": "__meta_3", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_2_8_10", "from": "__meta_2", "to": "__meta_8", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_2_13_11", "from": "__meta_2", "to": "__meta_13", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_2_14_12", "from": "__meta_2", "to": "__meta_14", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_2_17_13", "from": "__meta_2", "to": "__meta_17", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_2_19_14", "from": "__meta_2", "to": "__meta_19", "label": "", "title": "8 条跨社区边", "width": 3.3972245773362193, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_2_23_15", "from": "__meta_2", "to": "__meta_23", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_2_26_16", "from": "__meta_2", "to": "__meta_26", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_2_29_17", "from": "__meta_2", "to": "__meta_29", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_2_33_18", "from": "__meta_2", "to": "__meta_33", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_2_34_19", "from": "__meta_2", "to": "__meta_34", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_2_47_20", "from": "__meta_2", "to": "__meta_47", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_3_4_21", "from": "__meta_3", "to": "__meta_4", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_3_5_22", "from": "__meta_3", "to": "__meta_5", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_3_10_23", "from": "__meta_3", "to": "__meta_10", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_3_13_24", "from": "__meta_3", "to": "__meta_13", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_3_15_25", "from": "__meta_3", "to": "__meta_15", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_3_16_26", "from": "__meta_3", "to": "__meta_16", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_3_20_27", "from": "__meta_3", "to": "__meta_20", "label": "", "title": "11 条跨社区边", "width": 3.684906649788, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_3_21_28", "from": "__meta_3", "to": "__meta_21", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_3_23_29", "from": "__meta_3", "to": "__meta_23", "label": "", "title": "5 条跨社区边", "width": 2.9917594692280547, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_3_26_30", "from": "__meta_3", "to": "__meta_26", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_3_48_31", "from": "__meta_3", "to": "__meta_48", "label": "", "title": "5 条跨社区边", "width": 2.9917594692280547, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_4_7_32", "from": "__meta_4", "to": "__meta_7", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_4_23_33", "from": "__meta_4", "to": "__meta_23", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_4_41_34", "from": "__meta_4", "to": "__meta_41", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_5_6_35", "from": "__meta_5", "to": "__meta_6", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_5_11_36", "from": "__meta_5", "to": "__meta_11", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_5_14_37", "from": "__meta_5", "to": "__meta_14", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_5_15_38", "from": "__meta_5", "to": "__meta_15", "label": "", "title": "6 条跨社区边", "width": 3.145910149055313, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_5_21_39", "from": "__meta_5", "to": "__meta_21", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_5_24_40", "from": "__meta_5", "to": "__meta_24", "label": "", "title": "4 条跨社区边", "width": 2.8094379124341002, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_5_26_41", "from": "__meta_5", "to": "__meta_26", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_5_33_42", "from": "__meta_5", "to": "__meta_33", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_5_38_43", "from": "__meta_5", "to": "__meta_38", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_6_7_44", "from": "__meta_6", "to": "__meta_7", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_6_8_45", "from": "__meta_6", "to": "__meta_8", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_6_11_46", "from": "__meta_6", "to": "__meta_11", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_6_13_47", "from": "__meta_6", "to": "__meta_13", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_6_14_48", "from": "__meta_6", "to": "__meta_14", "label": "", "title": "8 条跨社区边", "width": 3.3972245773362193, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_6_18_49", "from": "__meta_6", "to": "__meta_18", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_6_20_50", "from": "__meta_6", "to": "__meta_20", "label": "", "title": "8 条跨社区边", "width": 3.3972245773362193, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_6_22_51", "from": "__meta_6", "to": "__meta_22", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_6_23_52", "from": "__meta_6", "to": "__meta_23", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_6_24_53", "from": "__meta_6", "to": "__meta_24", "label": "", "title": "7 条跨社区边", "width": 3.2794415416798355, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_6_26_54", "from": "__meta_6", "to": "__meta_26", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_6_27_55", "from": "__meta_6", "to": "__meta_27", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_6_34_56", "from": "__meta_6", "to": "__meta_34", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_7_12_57", "from": "__meta_7", "to": "__meta_12", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_7_15_58", "from": "__meta_7", "to": "__meta_15", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_7_18_59", "from": "__meta_7", "to": "__meta_18", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_7_22_60", "from": "__meta_7", "to": "__meta_22", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_7_26_61", "from": "__meta_7", "to": "__meta_26", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_7_27_62", "from": "__meta_7", "to": "__meta_27", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_7_33_63", "from": "__meta_7", "to": "__meta_33", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_7_34_64", "from": "__meta_7", "to": "__meta_34", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_7_36_65", "from": "__meta_7", "to": "__meta_36", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_8_15_66", "from": "__meta_8", "to": "__meta_15", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_8_23_67", "from": "__meta_8", "to": "__meta_23", "label": "", "title": "4 条跨社区边", "width": 2.8094379124341002, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_8_24_68", "from": "__meta_8", "to": "__meta_24", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_8_36_69", "from": "__meta_8", "to": "__meta_36", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_9_10_70", "from": "__meta_9", "to": "__meta_10", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_9_12_71", "from": "__meta_9", "to": "__meta_12", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_9_14_72", "from": "__meta_9", "to": "__meta_14", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_9_19_73", "from": "__meta_9", "to": "__meta_19", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_9_20_74", "from": "__meta_9", "to": "__meta_20", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_10_11_75", "from": "__meta_10", "to": "__meta_11", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_10_20_76", "from": "__meta_10", "to": "__meta_20", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_11_12_77", "from": "__meta_11", "to": "__meta_12", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_11_14_78", "from": "__meta_11", "to": "__meta_14", "label": "", "title": "14 条跨社区边", "width": 3.90805020110221, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_11_15_79", "from": "__meta_11", "to": "__meta_15", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_11_19_80", "from": "__meta_11", "to": "__meta_19", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_11_20_81", "from": "__meta_11", "to": "__meta_20", "label": "", "title": "4 条跨社区边", "width": 2.8094379124341002, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_11_24_82", "from": "__meta_11", "to": "__meta_24", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_11_26_83", "from": "__meta_11", "to": "__meta_26", "label": "", "title": "4 条跨社区边", "width": 2.8094379124341002, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_11_32_84", "from": "__meta_11", "to": "__meta_32", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_11_34_85", "from": "__meta_11", "to": "__meta_34", "label": "", "title": "4 条跨社区边", "width": 2.8094379124341002, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_11_36_86", "from": "__meta_11", "to": "__meta_36", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_11_37_87", "from": "__meta_11", "to": "__meta_37", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_11_39_88", "from": "__meta_11", "to": "__meta_39", "label": "", "title": "6 条跨社区边", "width": 3.145910149055313, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_11_40_89", "from": "__meta_11", "to": "__meta_40", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_11_44_90", "from": "__meta_11", "to": "__meta_44", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_11_49_91", "from": "__meta_11", "to": "__meta_49", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_12_13_92", "from": "__meta_12", "to": "__meta_13", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_12_14_93", "from": "__meta_12", "to": "__meta_14", "label": "", "title": "12 条跨社区边", "width": 3.7649493574615365, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_12_15_94", "from": "__meta_12", "to": "__meta_15", "label": "", "title": "20 条跨社区边", "width": 4.244522437723423, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_12_17_95", "from": "__meta_12", "to": "__meta_17", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_12_21_96", "from": "__meta_12", "to": "__meta_21", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_12_23_97", "from": "__meta_12", "to": "__meta_23", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_12_24_98", "from": "__meta_12", "to": "__meta_24", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_12_26_99", "from": "__meta_12", "to": "__meta_26", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_12_29_100", "from": "__meta_12", "to": "__meta_29", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_12_33_101", "from": "__meta_12", "to": "__meta_33", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_12_34_102", "from": "__meta_12", "to": "__meta_34", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_12_36_103", "from": "__meta_12", "to": "__meta_36", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_12_43_104", "from": "__meta_12", "to": "__meta_43", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_12_46_105", "from": "__meta_12", "to": "__meta_46", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_13_17_106", "from": "__meta_13", "to": "__meta_17", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_13_19_107", "from": "__meta_13", "to": "__meta_19", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_13_23_108", "from": "__meta_13", "to": "__meta_23", "label": "", "title": "5 条跨社区边", "width": 2.9917594692280547, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_13_29_109", "from": "__meta_13", "to": "__meta_29", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_13_33_110", "from": "__meta_13", "to": "__meta_33", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_14_15_111", "from": "__meta_14", "to": "__meta_15", "label": "", "title": "34 条跨社区边", "width": 4.755348061489413, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_14_18_112", "from": "__meta_14", "to": "__meta_18", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_14_24_113", "from": "__meta_14", "to": "__meta_24", "label": "", "title": "13 条跨社区边", "width": 3.839057329615258, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_14_26_114", "from": "__meta_14", "to": "__meta_26", "label": "", "title": "13 条跨社区边", "width": 3.839057329615258, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_14_32_115", "from": "__meta_14", "to": "__meta_32", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_14_34_116", "from": "__meta_14", "to": "__meta_34", "label": "", "title": "12 条跨社区边", "width": 3.7649493574615365, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_14_35_117", "from": "__meta_14", "to": "__meta_35", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_14_36_118", "from": "__meta_14", "to": "__meta_36", "label": "", "title": "7 条跨社区边", "width": 3.2794415416798355, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_14_37_119", "from": "__meta_14", "to": "__meta_37", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_14_39_120", "from": "__meta_14", "to": "__meta_39", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_14_40_121", "from": "__meta_14", "to": "__meta_40", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_14_41_122", "from": "__meta_14", "to": "__meta_41", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_14_44_123", "from": "__meta_14", "to": "__meta_44", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_14_46_124", "from": "__meta_14", "to": "__meta_46", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_14_50_125", "from": "__meta_14", "to": "__meta_50", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_15_24_126", "from": "__meta_15", "to": "__meta_24", "label": "", "title": "4 条跨社区边", "width": 2.8094379124341002, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_15_26_127", "from": "__meta_15", "to": "__meta_26", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_15_31_128", "from": "__meta_15", "to": "__meta_31", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_15_34_129", "from": "__meta_15", "to": "__meta_34", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_15_36_130", "from": "__meta_15", "to": "__meta_36", "label": "", "title": "6 条跨社区边", "width": 3.145910149055313, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_15_37_131", "from": "__meta_15", "to": "__meta_37", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_15_38_132", "from": "__meta_15", "to": "__meta_38", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_15_39_133", "from": "__meta_15", "to": "__meta_39", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_15_43_134", "from": "__meta_15", "to": "__meta_43", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_15_44_135", "from": "__meta_15", "to": "__meta_44", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_15_46_136", "from": "__meta_15", "to": "__meta_46", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_15_49_137", "from": "__meta_15", "to": "__meta_49", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_16_20_138", "from": "__meta_16", "to": "__meta_20", "label": "", "title": "5 条跨社区边", "width": 2.9917594692280547, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_16_23_139", "from": "__meta_16", "to": "__meta_23", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_16_30_140", "from": "__meta_16", "to": "__meta_30", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_16_48_141", "from": "__meta_16", "to": "__meta_48", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_18_22_142", "from": "__meta_18", "to": "__meta_22", "label": "", "title": "5 条跨社区边", "width": 2.9917594692280547, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_18_34_143", "from": "__meta_18", "to": "__meta_34", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_18_39_144", "from": "__meta_18", "to": "__meta_39", "label": "", "title": "6 条跨社区边", "width": 3.145910149055313, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_18_44_145", "from": "__meta_18", "to": "__meta_44", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_19_21_146", "from": "__meta_19", "to": "__meta_21", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_19_23_147", "from": "__meta_19", "to": "__meta_23", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_19_29_148", "from": "__meta_19", "to": "__meta_29", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_19_34_149", "from": "__meta_19", "to": "__meta_34", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_19_37_150", "from": "__meta_19", "to": "__meta_37", "label": "", "title": "5 条跨社区边", "width": 2.9917594692280547, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_19_39_151", "from": "__meta_19", "to": "__meta_39", "label": "", "title": "4 条跨社区边", "width": 2.8094379124341002, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_19_44_152", "from": "__meta_19", "to": "__meta_44", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_19_49_153", "from": "__meta_19", "to": "__meta_49", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_20_21_154", "from": "__meta_20", "to": "__meta_21", "label": "", "title": "4 条跨社区边", "width": 2.8094379124341002, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_20_22_155", "from": "__meta_20", "to": "__meta_22", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_20_23_156", "from": "__meta_20", "to": "__meta_23", "label": "", "title": "5 条跨社区边", "width": 2.9917594692280547, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_20_26_157", "from": "__meta_20", "to": "__meta_26", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_20_38_158", "from": "__meta_20", "to": "__meta_38", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_20_45_159", "from": "__meta_20", "to": "__meta_45", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_20_48_160", "from": "__meta_20", "to": "__meta_48", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_22_34_161", "from": "__meta_22", "to": "__meta_34", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_22_46_162", "from": "__meta_22", "to": "__meta_46", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_24_27_163", "from": "__meta_24", "to": "__meta_27", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_24_46_164", "from": "__meta_24", "to": "__meta_46", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_26_34_165", "from": "__meta_26", "to": "__meta_34", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_27_30_166", "from": "__meta_27", "to": "__meta_30", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_27_34_167", "from": "__meta_27", "to": "__meta_34", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_27_40_168", "from": "__meta_27", "to": "__meta_40", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_27_46_169", "from": "__meta_27", "to": "__meta_46", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_28_33_170", "from": "__meta_28", "to": "__meta_33", "label": "", "title": "7 条跨社区边", "width": 3.2794415416798355, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_28_38_171", "from": "__meta_28", "to": "__meta_38", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_28_42_172", "from": "__meta_28", "to": "__meta_42", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_28_43_173", "from": "__meta_28", "to": "__meta_43", "label": "", "title": "5 条跨社区边", "width": 2.9917594692280547, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_28_46_174", "from": "__meta_28", "to": "__meta_46", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_29_40_175", "from": "__meta_29", "to": "__meta_40", "label": "", "title": "3 条跨社区边", "width": 2.5862943611198905, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_29_46_176", "from": "__meta_29", "to": "__meta_46", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_30_34_177", "from": "__meta_30", "to": "__meta_34", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_31_44_178", "from": "__meta_31", "to": "__meta_44", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_33_35_179", "from": "__meta_33", "to": "__meta_35", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_33_42_180", "from": "__meta_33", "to": "__meta_42", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_33_47_181", "from": "__meta_33", "to": "__meta_47", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_34_36_182", "from": "__meta_34", "to": "__meta_36", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_34_41_183", "from": "__meta_34", "to": "__meta_41", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_34_46_184", "from": "__meta_34", "to": "__meta_46", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_38_42_185", "from": "__meta_38", "to": "__meta_42", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_39_44_186", "from": "__meta_39", "to": "__meta_44", "label": "", "title": "2 条跨社区边", "width": 2.2986122886681097, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_39_49_187", "from": "__meta_39", "to": "__meta_49", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}, {"id": "m_43_46_188", "from": "__meta_43", "to": "__meta_46", "label": "", "title": "1 条跨社区边", "width": 1.8931471805599451, "color": {"color": "#94a3b8", "opacity": 0.72}, "arrows": {"to": {"enabled": false}}, "dashes": false}];
 const NODE_BY_ID = new Map(RAW_NODES.map(n => [n.id, n]));
+/**
+ * 可读树状子图：固定坐标、限制规模、主干/分支视觉权重。
+ * 依赖全局：RAW_NODES, RAW_EDGES, NODE_BY_ID（由 graph.html 内联脚本提供）
+ */
+(function (global) {
+  var DEFAULTS = {
+    maxDepth: 4,
+    maxNodes: 200,
+    maxEdges: 400,
+    maxChildrenPerNode: 12,
+  };
+
+  function addUnique(arr, x) {
+    if (arr.indexOf(x) === -1) arr.push(x);
+  }
+
+  function buildPredSucc(rawEdges, allowedIds) {
+    var pred = new Map();
+    var succ = new Map();
+    function add(m, a, b) {
+      if (!allowedIds.has(a) || !allowedIds.has(b)) return;
+      if (!m.has(a)) m.set(a, []);
+      if (m.get(a).indexOf(b) === -1) m.get(a).push(b);
+    }
+    for (var i = 0; i < rawEdges.length; i++) {
+      var e = rawEdges[i];
+      add(succ, e.from, e.to);
+      add(pred, e.to, e.from);
+    }
+    return { pred: pred, succ: succ };
+  }
+
+  function communityBoostMap(legend) {
+    var m = {};
+    var maxC = 1;
+    if (legend && legend.length) {
+      for (var i = 0; i < legend.length; i++) {
+        maxC = Math.max(maxC, legend[i].count || 1);
+      }
+    }
+    if (legend && legend.length) {
+      for (var j = 0; j < legend.length; j++) {
+        var L = legend[j];
+        m[L.cid] = (6 * (L.count || 0)) / maxC;
+      }
+    }
+    return m;
+  }
+
+  function scoreOf(id, pred, succ, commBoost, rawById) {
+    var raw = rawById.get(id);
+    var cid = raw && raw.community != null ? raw.community : 0;
+    var p = (pred.get(id) || []).length;
+    var s = (succ.get(id) || []).length;
+    return p + s + (commBoost[cid] || 0);
+  }
+
+  function pickFocus(focusNodeId, allowedIds, pred, succ, rawById, commBoost) {
+    if (focusNodeId && allowedIds.has(focusNodeId)) return focusNodeId;
+    var best = null;
+    var bestSc = -1;
+    allowedIds.forEach(function (id) {
+      var sc = scoreOf(id, pred, succ, commBoost, rawById);
+      if (sc > bestSc) {
+        bestSc = sc;
+        best = id;
+      }
+    });
+    return best;
+  }
+
+  function walkMainGreedy(start, predOrSucc, rawById, pred, succ, commBoost) {
+    var path = [];
+    var cur = start;
+    for (var step = 0; step < 24; step++) {
+      var nb = predOrSucc.get(cur) || [];
+      if (!nb.length) break;
+      var best = nb[0];
+      var bestS = scoreOf(best, pred, succ, commBoost, rawById);
+      for (var i = 1; i < nb.length; i++) {
+        var sc = scoreOf(nb[i], pred, succ, commBoost, rawById);
+        if (sc > bestS) {
+          bestS = sc;
+          best = nb[i];
+        }
+      }
+      path.push(best);
+      cur = best;
+    }
+    return path;
+  }
+
+  /**
+   * @param {object} opts
+   * @param {string|null} opts.focusNodeId
+   * @param {Set<string>} opts.allowedIds
+   * @param {Set<string>} [opts.expandedOverflow]
+   * @param {object[]} opts.rawNodes — 同 RAW_NODES
+   * @param {object[]} opts.rawEdges — 同 RAW_EDGES
+   * @param {Map} opts.NODE_BY_ID
+   * @param {object[]} [opts.legend] — LEGEND
+   */
+  global.computeReadableTreeLayout = function (opts) {
+    var o = Object.assign({}, DEFAULTS, opts || {});
+    var allowedIds = o.allowedIds;
+    var expandedOverflow = o.expandedOverflow || new Set();
+    var rawNodes = o.rawNodes || [];
+    var rawEdges = o.rawEdges || [];
+    var legend = o.legend || [];
+    var NODE_BY_ID = o.NODE_BY_ID || new Map();
+    var maxDepth = o.maxDepth;
+    var maxNodes = o.maxNodes;
+    var maxEdges = o.maxEdges;
+    var maxChildrenPerNode = o.maxChildrenPerNode;
+
+    var commBoost = communityBoostMap(legend);
+    var ps = buildPredSucc(rawEdges, allowedIds);
+    var pred = ps.pred;
+    var succ = ps.succ;
+
+    var focus = pickFocus(o.focusNodeId || null, allowedIds, pred, succ, NODE_BY_ID, commBoost);
+    if (!focus) {
+      return {
+        visNodes: [],
+        visEdges: [],
+        hiddenNodeCount: 0,
+        hiddenEdgeCount: 0,
+        levels: {},
+        mainPath: [],
+        nodeMeta: {},
+        overflowNodes: [],
+        focusNodeId: null,
+      };
+    }
+
+    var outNodes = new Set();
+    outNodes.add(focus);
+    var level = new Map();
+    level.set(focus, 0);
+    var pseudoMeta = [];
+
+    function capNeighbors(parent, neighbors, dir) {
+      var cap = maxChildrenPerNode;
+      if (neighbors.length <= cap) return { take: neighbors.slice(), overflow: 0, ovId: null };
+      var ovId = '__tree_ov__' + parent + '__' + dir;
+      if (expandedOverflow.has(ovId)) {
+        var lim = Math.min(neighbors.length, Math.max(cap, cap * 4));
+        var take = neighbors.slice(0, lim);
+        var overflow = neighbors.length - lim;
+        return { take: take, overflow: overflow, ovId: overflow > 0 ? ovId : null };
+      }
+      var take = neighbors.slice(0, cap - 1);
+      var overflow = neighbors.length - take.length;
+      return { take: take, overflow: overflow, ovId: ovId };
+    }
+
+    for (var du = 1; du <= maxDepth; du++) {
+      if (outNodes.size >= maxNodes) break;
+      var layer = [];
+      outNodes.forEach(function (id) {
+        if (String(id).indexOf('__tree_ov__') === 0) return;
+        if (level.get(id) === -(du - 1)) layer.push(id);
+      });
+      for (var li = 0; li < layer.length; li++) {
+        if (outNodes.size >= maxNodes) break;
+        var u = layer[li];
+        var nb = (pred.get(u) || []).filter(function (id) {
+          return allowedIds.has(id);
+        });
+        nb.sort(function (a, b) {
+          return scoreOf(b, pred, succ, commBoost, NODE_BY_ID) - scoreOf(a, pred, succ, commBoost, NODE_BY_ID);
+        });
+        var capU = capNeighbors(u, nb, 'up');
+        for (var ci = 0; ci < capU.take.length; ci++) {
+          if (outNodes.size >= maxNodes) break;
+          var v = capU.take[ci];
+          outNodes.add(v);
+          level.set(v, Math.min(level.get(v) != null ? level.get(v) : 999, -du));
+        }
+        if (capU.overflow > 0 && capU.ovId && outNodes.size < maxNodes) {
+          outNodes.add(capU.ovId);
+          level.set(capU.ovId, -du);
+          pseudoMeta.push({
+            id: capU.ovId,
+            parentId: u,
+            dir: 'up',
+            count: capU.overflow,
+            hiddenIds: nb.filter(function (x) {
+              return capU.take.indexOf(x) === -1;
+            }),
+          });
+        }
+      }
+    }
+
+    for (var dd = 1; dd <= maxDepth; dd++) {
+      if (outNodes.size >= maxNodes) break;
+      var layerD = [];
+      outNodes.forEach(function (id) {
+        if (String(id).indexOf('__tree_ov__') === 0) return;
+        if (level.get(id) === dd - 1) layerD.push(id);
+      });
+      for (var lj = 0; lj < layerD.length; lj++) {
+        if (outNodes.size >= maxNodes) break;
+        var u2 = layerD[lj];
+        var nb2 = (succ.get(u2) || []).filter(function (id) {
+          return allowedIds.has(id);
+        });
+        nb2.sort(function (a, b) {
+          return scoreOf(b, pred, succ, commBoost, NODE_BY_ID) - scoreOf(a, pred, succ, commBoost, NODE_BY_ID);
+        });
+        var capD = capNeighbors(u2, nb2, 'down');
+        for (var cj = 0; cj < capD.take.length; cj++) {
+          if (outNodes.size >= maxNodes) break;
+          var w = capD.take[cj];
+          outNodes.add(w);
+          level.set(w, Math.max(level.get(w) != null ? level.get(w) : -999, dd));
+        }
+        if (capD.overflow > 0 && capD.ovId && outNodes.size < maxNodes) {
+          outNodes.add(capD.ovId);
+          level.set(capD.ovId, dd);
+          pseudoMeta.push({
+            id: capD.ovId,
+            parentId: u2,
+            dir: 'down',
+            count: capD.overflow,
+            hiddenIds: nb2.filter(function (x) {
+              return capD.take.indexOf(x) === -1;
+            }),
+          });
+        }
+      }
+    }
+
+    var upWalk = walkMainGreedy(focus, pred, NODE_BY_ID, pred, succ, commBoost);
+    var dnWalk = walkMainGreedy(focus, succ, NODE_BY_ID, pred, succ, commBoost);
+    var mainSet = new Set();
+    mainSet.add(focus);
+    upWalk.forEach(function (x) {
+      mainSet.add(x);
+    });
+    dnWalk.forEach(function (x) {
+      mainSet.add(x);
+    });
+    var mainPath = upWalk
+      .slice()
+      .reverse()
+      .concat([focus])
+      .concat(dnWalk);
+
+    var edgeList = [];
+    var edgeSeen = new Set();
+    for (var ei = 0; ei < rawEdges.length; ei++) {
+      var e = rawEdges[ei];
+      if (!outNodes.has(e.from) || !outNodes.has(e.to)) continue;
+      var ek = e.from + '=>' + e.to;
+      if (edgeSeen.has(ek)) continue;
+      edgeSeen.add(ek);
+      edgeList.push(e);
+    }
+
+    function edgeMain(e) {
+      return mainSet.has(e.from) && mainSet.has(e.to);
+    }
+    edgeList.sort(function (a, b) {
+      var ma = edgeMain(a) ? 1 : 0;
+      var mb = edgeMain(b) ? 1 : 0;
+      if (mb !== ma) return mb - ma;
+      return (b.width || 1) - (a.width || 1);
+    });
+    var hiddenEdgeCount = 0;
+    if (edgeList.length > maxEdges) {
+      hiddenEdgeCount = edgeList.length - maxEdges;
+      edgeList = edgeList.slice(0, maxEdges);
+    }
+
+    var LEVEL_GAP = 118;
+    var COL_GAP = 92;
+    var levels = {};
+    outNodes.forEach(function (nid) {
+      var L = level.get(nid) != null ? level.get(nid) : 0;
+      var k = String(L);
+      if (!levels[k]) levels[k] = [];
+      levels[k].push(nid);
+    });
+    Object.keys(levels).forEach(function (k) {
+      levels[k].sort(function (a, b) {
+        var ma = mainSet.has(a) ? 1 : 0;
+        var mb = mainSet.has(b) ? 1 : 0;
+        if (mb !== ma) return mb - ma;
+        return (
+          scoreOf(b, pred, succ, commBoost, NODE_BY_ID) - scoreOf(a, pred, succ, commBoost, NODE_BY_ID)
+        );
+      });
+    });
+
+    var pos = new Map();
+    Object.keys(levels).forEach(function (k) {
+      var arr = levels[k];
+      var n = arr.length;
+      var totalW = (n - 1) * COL_GAP;
+      var startX = -totalW / 2;
+      for (var ii = 0; ii < n; ii++) {
+        var nid = arr[ii];
+        var stagger = mainSet.has(nid) ? 0 : (ii % 2 === 0 ? -14 : 14);
+        pos.set(nid, { x: startX + ii * COL_GAP, y: parseInt(k, 10) * LEVEL_GAP + stagger });
+      }
+    });
+
+    function nodeToVisItem(raw, extra) {
+      if (!raw) return null;
+      var o2 = Object.assign(
+        {
+          id: raw.id,
+          label: raw.label,
+          color: raw.color,
+          size: raw.size,
+          font: raw.font,
+          title: raw.title,
+          _community: raw.community,
+          _community_name: raw.community_name,
+          _source_file: raw.source_file,
+          _source_location: raw.source_location,
+          _file_type: raw.file_type,
+          _ui_type: raw.ui_type,
+          _degree: raw.degree,
+          norm_label: raw.norm_label,
+        },
+        extra || {}
+      );
+      return o2;
+    }
+
+    var visNodes = [];
+    outNodes.forEach(function (nid) {
+      var p = pos.get(nid) || { x: 0, y: 0 };
+      if (String(nid).indexOf('__tree_ov__') === 0) {
+        var pm = null;
+        for (var pi = 0; pi < pseudoMeta.length; pi++) {
+          if (pseudoMeta[pi].id === nid) pm = pseudoMeta[pi];
+        }
+        visNodes.push({
+          id: nid,
+          label: pm ? '还有 ' + pm.count + ' 个…' : '…',
+          x: p.x,
+          y: p.y,
+          fixed: { x: true, y: true },
+          shape: 'box',
+          color: { background: '#1e293b', border: '#64748b', highlight: { background: '#334155', border: '#94a3b8' } },
+          font: { color: '#cbd5e1', size: 11 },
+          borderWidth: 2,
+          _isTreeOverflow: true,
+          _treeParent: pm && pm.parentId,
+          _treeDir: pm && pm.dir,
+        });
+        return;
+      }
+      var raw = NODE_BY_ID.get(nid);
+      if (!raw) return;
+      var onMain = mainSet.has(nid);
+      var Lv = level.get(nid) || 0;
+      var dist = Math.abs(Lv);
+      var op = Math.max(0.35, 1 - dist * 0.12);
+      var sz = onMain ? Math.max(18, (raw.size || 12) * 1.15) : Math.max(10, (raw.size || 10) * 0.75);
+      var bw = onMain ? 3 : 1.2;
+      var fs = onMain ? Math.max(11, (raw.font && raw.font.size) || 0) : raw.font && raw.font.size;
+      var font = raw.font ? Object.assign({}, raw.font, fs ? { size: fs } : {}) : { size: onMain ? 11 : 0, color: '#e2e8f0' };
+      visNodes.push(
+        nodeToVisItem(raw, {
+          x: p.x,
+          y: p.y,
+          fixed: { x: true, y: true },
+          size: sz,
+          borderWidth: bw,
+          opacity: op,
+          font: font,
+          _treeLevel: Lv,
+          _treeOnMain: onMain,
+        })
+      );
+    });
+
+    var visEdges = [];
+    var ei2 = 0;
+    for (var ej = 0; ej < edgeList.length; ej++) {
+      var ed = edgeList[ej];
+      var mainE = mainSet.has(ed.from) && mainSet.has(ed.to);
+      var ec = ed.color ? JSON.parse(JSON.stringify(ed.color)) : { color: '#8899aa', opacity: 0.55 };
+      if (!mainE) {
+        ec.opacity = (ec.opacity != null ? ec.opacity : 0.55) * 0.35;
+      }
+      visEdges.push({
+        id: '__tree_e_' + ed.id + '_' + ei2++,
+        from: ed.from,
+        to: ed.to,
+        label: '',
+        title: ed.title,
+        dashes: ed.dashes,
+        width: mainE ? Math.max(2.5, (ed.width || 1) + 1.2) : Math.max(0.6, (ed.width || 1) * 0.65),
+        color: ec,
+        arrows: ed.arrows ? JSON.parse(JSON.stringify(ed.arrows)) : { to: { enabled: true, scaleFactor: 0.42 } },
+      });
+    }
+
+    for (var pk = 0; pk < pseudoMeta.length; pk++) {
+      var ov = pseudoMeta[pk];
+      if (!outNodes.has(ov.id)) continue;
+      if (ov.dir === 'up') {
+        visEdges.push({
+          id: '__tree_ov_e_' + ov.id,
+          from: ov.id,
+          to: ov.parentId,
+          arrows: { to: { enabled: true, scaleFactor: 0.38 } },
+          color: { color: '#64748b', opacity: 0.55 },
+          width: 1,
+          dashes: true,
+          title: '折叠的上游',
+        });
+      } else {
+        visEdges.push({
+          id: '__tree_ov_e_' + ov.id,
+          from: ov.parentId,
+          to: ov.id,
+          arrows: { to: { enabled: true, scaleFactor: 0.38 } },
+          color: { color: '#64748b', opacity: 0.55 },
+          width: 1,
+          dashes: true,
+          title: '折叠的下游',
+        });
+      }
+    }
+
+    var nodeMeta = {};
+    var upTotal = (pred.get(focus) || []).length;
+    var downTotal = (succ.get(focus) || []).length;
+    var upShown = (pred.get(focus) || []).filter(function (id) {
+      return outNodes.has(id) && String(id).indexOf('__tree_ov__') !== 0;
+    }).length;
+    var downShown = (succ.get(focus) || []).filter(function (id) {
+      return outNodes.has(id) && String(id).indexOf('__tree_ov__') !== 0;
+    }).length;
+    outNodes.forEach(function (nid) {
+      if (String(nid).indexOf('__tree_ov__') === 0) return;
+      var L0 = level.get(nid) != null ? level.get(nid) : 0;
+      var ut = (pred.get(nid) || []).length;
+      var dt = (succ.get(nid) || []).length;
+      var us = (pred.get(nid) || []).filter(function (x) {
+        return outNodes.has(x);
+      }).length;
+      var ds = (succ.get(nid) || []).filter(function (x) {
+        return outNodes.has(x);
+      }).length;
+      nodeMeta[nid] = {
+        level: L0,
+        upTotal: ut,
+        downTotal: dt,
+        upShown: us,
+        downShown: ds,
+        folded: hiddenEdgeCount > 0 || pseudoMeta.length > 0,
+      };
+    });
+    nodeMeta[focus] = {
+      level: 0,
+      upTotal: upTotal,
+      downTotal: downTotal,
+      upShown: upShown,
+      downShown: downShown,
+      folded: hiddenEdgeCount > 0 || pseudoMeta.length > 0,
+    };
+
+    var realCount = 0;
+    outNodes.forEach(function (n) {
+      if (String(n).indexOf('__tree_ov__') !== 0) realCount++;
+    });
+    var hiddenNodeCount = Math.max(0, allowedIds.size - realCount);
+
+    return {
+      visNodes: visNodes,
+      visEdges: visEdges,
+      hiddenNodeCount: hiddenNodeCount,
+      hiddenEdgeCount: hiddenEdgeCount,
+      levels: levels,
+      mainPath: mainPath,
+      nodeMeta: nodeMeta,
+      overflowNodes: pseudoMeta,
+      focusNodeId: focus,
+    };
+  };
+})(typeof window !== 'undefined' ? window : this);
+
 
 let aggregateMode = false;
 let _suppressAggCheckbox = false;
 let _suppressHierCheckbox = false;
 let _hierLayoutDebounce = null;
+let readableTreeMode = false;
+const treeExpandedOverflow = new Set();
+let _treeLayoutCacheKey = '';
+let _treeLayoutCacheRes = null;
 
 function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
@@ -280,6 +783,20 @@ function showInfo(nodeId) {
     const relHtml = rel ? `<span class="rel-tag">${esc(rel)}</span>` : '';
     return `<div class="neighbor-row"><span class="neighbor-link" style="border-left-color:${esc(c)}" data-nid="${esc(nid)}">${esc(nb ? nb.label : nid)}</span>${relHtml}</div>`;
   }).join('');
+  let treeBlock = '';
+  if (readableTreeMode && window.__lastReadableTreeMeta) {
+    const R = window.__lastReadableTreeMeta;
+    const tm = R.nodeMeta && R.nodeMeta[nodeId];
+    if (tm) {
+      treeBlock += `<div class="field dim">树状子图 · 层级 ${tm.level} · 上游展示/总数 ${tm.upShown}/${tm.upTotal} · 下游展示/总数 ${tm.downShown}/${tm.downTotal}</div>`;
+    }
+    if (R.hiddenNodeCount || R.hiddenEdgeCount) {
+      treeBlock += `<div class="field dim">相对全图：约隐藏 ${R.hiddenNodeCount} 节点 · ${R.hiddenEdgeCount} 条边未入子图</div>`;
+    }
+    if (R.overflowNodes && R.overflowNodes.length) {
+      treeBlock += `<div class="field dim">存在折叠分支：双击「还有 N 个…」可展开该向</div>`;
+    }
+  }
   document.getElementById('info-content').innerHTML = `
     <div class="field"><b>${esc(n.label)}</b></div>
     <div class="field">类型: ${esc(n._file_type || n._ui_type || 'unknown')}</div>
@@ -287,6 +804,7 @@ function showInfo(nodeId) {
     <div class="field">文件: ${esc(n._source_file || '-')}</div>
     <div class="field">位置: ${fmtLoc(n._source_location)}</div>
     <div class="field">度数: ${n._degree}</div>
+    ${treeBlock}
     ${neighborIds.length ? `<div class="field dim">相邻节点与关系 (${neighborIds.length})</div><div id="neighbors-list">${neighborItems}</div>` : ''}
   `;
   document.querySelectorAll('.neighbor-link').forEach(el => {
@@ -303,6 +821,17 @@ function focusNode(nodeId) {
 }
 
 function computeMaxVisibleDegree() {
+  if (readableTreeMode) {
+    let maxVisDeg = 1;
+    nodesDS.getIds().forEach(id => {
+      const nd = nodesDS.get(id);
+      if (!nd || nd.hidden) return;
+      const raw = NODE_BY_ID.get(id);
+      const d = raw && raw.degree != null ? raw.degree : 0;
+      if (d > maxVisDeg) maxVisDeg = d;
+    });
+    return maxVisDeg;
+  }
   let maxVisDeg = 1;
   RAW_NODES.forEach(n => {
     const nd = nodesDS.get(n.id);
@@ -328,6 +857,23 @@ function policyFontSizeForNode(n, maxVisDeg, focus) {
 /** 标签策略：关 = 仅 Python  baked 的高度数标签；开 = 可见子图内高分位度数 + 搜索焦点子图 */
 function applyLabelPolicy() {
   if (aggregateMode) return;
+  if (readableTreeMode) {
+    const q = document.getElementById('search').value.toLowerCase().trim();
+    const focus = q ? computeSearchFocusIds(q) : null;
+    const maxVisDeg = computeMaxVisibleDegree();
+    const nu = [];
+    nodesDS.getIds().forEach(id => {
+      const nd = nodesDS.get(id);
+      if (!nd || nd.hidden) return;
+      const raw = NODE_BY_ID.get(id);
+      if (!raw) return;
+      const { bf, fs } = policyFontSizeForNode(raw, maxVisDeg, focus);
+      const big = nd._treeOnMain || raw.degree >= Math.max(5, maxVisDeg * 0.12);
+      nu.push({ id, font: { ...bf, size: big ? Math.max(fs, 11) : fs } });
+    });
+    if (nu.length) nodesDS.update(nu);
+    return;
+  }
   const q = document.getElementById('search').value.toLowerCase().trim();
   const focus = q ? computeSearchFocusIds(q) : null;
   const maxVisDeg = computeMaxVisibleDegree();
@@ -341,45 +887,108 @@ function applyLabelPolicy() {
   if (nu.length) nodesDS.update(nu);
 }
 
-/** 分层树状：沿边方向自上而下；含环时布局可能交叉，属正常现象 */
+/** 分层树状：可读子图 + 固定坐标 + 自上而下（上游在上）；全量 1000+ 节点不进入 vis 分层引擎 */
 function setHierarchicalLayoutMode() {
   if (aggregateMode) return;
+  readableTreeMode = true;
+  applyReadableTreeLayout(true);
+}
+
+function treeLayoutCacheKey(focusId, opts) {
+  const hid = [...hiddenCommunities].sort((a, b) => a - b).join('-');
+  const tc =
+    (document.getElementById('f-code').checked ? '1' : '0') +
+    (document.getElementById('f-doc').checked ? '1' : '0') +
+    (document.getElementById('f-concept').checked ? '1' : '0');
+  const ex = [...treeExpandedOverflow].sort().join('|');
+  return [focusId || '', allowedNodesCountForTree(), hid, tc, ex, opts.maxDepth, opts.maxNodes, opts.maxEdges, opts.maxChildrenPerNode].join('#');
+}
+
+function allowedNodesCountForTree() {
+  let c = 0;
+  RAW_NODES.forEach(n => { if (baseEligible(n)) c++; });
+  return c;
+}
+
+function applyReadableTreeLayout(force) {
+  if (!readableTreeMode || aggregateMode) return;
+  const allowed = new Set();
+  RAW_NODES.forEach(n => { if (baseEligible(n)) allowed.add(n.id); });
+  const focus = network.getSelectedNodes()[0] || null;
+  const opts = {
+    focusNodeId: focus,
+    allowedIds: allowed,
+    rawNodes: RAW_NODES,
+    rawEdges: RAW_EDGES,
+    NODE_BY_ID,
+    legend: LEGEND,
+    expandedOverflow: treeExpandedOverflow,
+    maxDepth: Math.max(1, Math.min(12, parseInt(document.getElementById('tree-max-depth').value, 10) || 4)),
+    maxNodes: Math.max(20, Math.min(500, parseInt(document.getElementById('tree-max-nodes').value, 10) || 200)),
+    maxEdges: Math.max(50, Math.min(1200, parseInt(document.getElementById('tree-max-edges').value, 10) || 400)),
+    maxChildrenPerNode: Math.max(4, Math.min(40, parseInt(document.getElementById('tree-max-children').value, 10) || 12)),
+  };
+  const ck = treeLayoutCacheKey(focus, opts);
+  if (!force && ck === _treeLayoutCacheKey && _treeLayoutCacheRes) {
+    /* 使用缓存 */
+  } else {
+    _treeLayoutCacheRes = computeReadableTreeLayout(opts);
+    _treeLayoutCacheKey = ck;
+  }
+  const res = _treeLayoutCacheRes;
+  window.__lastReadableTreeMeta = res;
+  nodesDS.clear();
+  edgesDS.clear();
+  nodesDS.add(res.visNodes);
+  edgesDS.add(res.visEdges);
   network.setOptions({
-    layout: {
-      hierarchical: {
-        enabled: true,
-        direction: 'UD',
-        sortMethod: 'directed',
-        levelSeparation: 240,
-        nodeSpacing: 200,
-        treeSpacing: 320,
-        blockShifting: true,
-        edgeMinimization: true,
-        parentCentralization: true,
-        shakeTowards: 'leaves',
-      },
-      improvedLayout: true,
-      randomSeed: 42,
-    },
+    layout: { hierarchical: { enabled: false }, improvedLayout: false, randomSeed: 42 },
     physics: { enabled: false },
+    interaction: {
+      hover: true,
+      hoverConnectedEdges: false,
+      selectConnectedEdges: false,
+      tooltipDelay: 220,
+      hideEdgesOnDrag: true,
+      hideEdgesOnZoom: true,
+      dragNodes: false,
+      dragView: true,
+      zoomView: true,
+      zoomSpeed: 1.02,
+      navigationButtons: false,
+      keyboard: false,
+      multiselect: false,
+    },
     edges: {
-      smooth: {
-        type: 'cubicBezier',
-        forceDirection: 'vertical',
-        roundness: 0.35,
-      },
+      smooth: false,
+      selectionWidth: 3,
+      font: { size: 0, strokeWidth: 0 },
+      arrows: { to: { enabled: true, scaleFactor: 0.42 } },
     },
   });
-  network.once('stabilizationIterationsDone', () => {
-    try { network.fit({ animation: false }); } catch (e) {}
-    applyLabelPolicy();
-    applyVisualState();
-  });
-  network.stabilize();
+  try { network.fit({ animation: false }); } catch (e0) {}
+  applyLabelPolicy();
+  const sel = res.focusNodeId;
+  if (sel && nodesDS.get(sel)) {
+    network.selectNodes([sel]);
+    applySelectionHighlight(sel);
+    showInfo(sel);
+  } else {
+    network.unselectAll();
+    applySelectionHighlight(null);
+  }
 }
 
 function setForceDirectedLayoutMode() {
   if (aggregateMode) return;
+  readableTreeMode = false;
+  _treeLayoutCacheKey = '';
+  _treeLayoutCacheRes = null;
+  treeExpandedOverflow.clear();
+  nodesDS.clear();
+  edgesDS.clear();
+  nodesDS.add(RAW_NODES.map(nodeToDatasetItem));
+  edgesDS.add(RAW_EDGES);
   network.setOptions({
     layout: {
       hierarchical: { enabled: false },
@@ -405,7 +1014,24 @@ function setForceDirectedLayoutMode() {
     edges: {
       smooth: false,
     },
+    interaction: {
+      hover: true,
+      hoverConnectedEdges: false,
+      selectConnectedEdges: false,
+      tooltipDelay: 220,
+      hideEdgesOnDrag: false,
+      hideEdgesOnZoom: false,
+      hideEdgesOnViewportDrag: false,
+      dragNodes: true,
+      dragView: true,
+      zoomView: true,
+      zoomSpeed: 1.02,
+      navigationButtons: false,
+      keyboard: false,
+      multiselect: false,
+    },
   });
+  applyFiltersImmediate();
   network.once('stabilizationIterationsDone', () => {
     network.setOptions({ physics: { enabled: false } });
     try { network.storePositions(); } catch (e) {}
@@ -430,6 +1056,22 @@ network.on('zoomEnd', () => {
   }, 90);
 });
 
+network.on('doubleClick', (params) => {
+  if (aggregateMode) return;
+  if (!document.getElementById('cb-hierarchical').checked) return;
+  const nid = params.nodes[0];
+  if (!nid) return;
+  if (String(nid).startsWith('__tree_ov__')) {
+    treeExpandedOverflow.add(nid);
+    _treeLayoutCacheKey = '';
+    applyReadableTreeLayout(true);
+    return;
+  }
+  network.selectNodes([nid]);
+  _treeLayoutCacheKey = '';
+  applyReadableTreeLayout(true);
+});
+
 function setAggregateChrome(on) {
   const tf = document.getElementById('type-filters');
   tf.style.opacity = on ? '0.45' : '1';
@@ -440,6 +1082,8 @@ function setAggregateChrome(on) {
   lw.style.pointerEvents = on ? 'none' : 'auto';
   const hcb = document.getElementById('cb-hierarchical');
   hcb.disabled = !!on;
+  const tbox = document.getElementById('tree-hier-params');
+  if (tbox) tbox.style.display = on ? 'none' : (hcb.checked ? 'block' : 'none');
   if (on) {
     _suppressHierCheckbox = true;
     hcb.checked = false;
@@ -460,6 +1104,10 @@ function syncLegendCheckboxesFromHidden() {
 
 function enterAggregateView() {
   aggregateMode = true;
+  readableTreeMode = false;
+  _treeLayoutCacheKey = '';
+  _treeLayoutCacheRes = null;
+  treeExpandedOverflow.clear();
   network.unselectAll();
   setAggregateChrome(true);
   nodesDS.clear();
@@ -567,6 +1215,10 @@ function computeSearchFocusIds(q) {
 }
 
 function applySearchHighlight(q) {
+  if (readableTreeMode) {
+    applySelectionHighlight(network.getSelectedNodes()[0] || null);
+    return;
+  }
   const focus = computeSearchFocusIds(q);
   if (!focus) {
     applySelectionHighlight(null);
@@ -604,6 +1256,45 @@ function applySearchHighlight(q) {
 }
 
 function applySelectionHighlight(selectedId) {
+  if (readableTreeMode) {
+    const nids = nodesDS.getIds();
+    const nu = [];
+    const eu = [];
+    const neigh =
+      selectedId && nodesDS.get(selectedId)
+        ? new Set(
+            [...network.getConnectedNodes(selectedId), selectedId].filter(id => {
+              const nd = nodesDS.get(id);
+              return nd && nd.hidden !== true;
+            })
+          )
+        : null;
+    nids.forEach(id => {
+      const nd = nodesDS.get(id);
+      if (!nd) return;
+      const baseC = BASE_NODE.get(id) || nd.color;
+      const hi = !selectedId || neigh.has(id);
+      nu.push({
+        id,
+        color: hi ? baseC : { background: '#1e293b', border: '#0f172a' },
+        opacity: hi ? 1 : 0.2,
+        borderWidth: selectedId && id === selectedId ? 4 : nd.borderWidth,
+      });
+    });
+    edgesDS.getIds().forEach(eid => {
+      const ed = edgesDS.get(eid);
+      const hit = selectedId && (ed.from === selectedId || ed.to === selectedId);
+      eu.push({
+        id: eid,
+        width: hit ? Math.max(3, ed.width || 1) : Math.max(0.5, (ed.width || 1) * 0.65),
+        color: hit ? { color: '#38bdf8', opacity: 0.95 } : { color: '#475569', opacity: 0.14 },
+        arrows: ed.arrows || { to: { enabled: true, scaleFactor: 0.42 } },
+      });
+    });
+    if (nu.length) nodesDS.update(nu);
+    if (eu.length) edgesDS.update(eu);
+    return;
+  }
   const nu = [];
   const eu = [];
   const q = document.getElementById('search').value.toLowerCase().trim();
@@ -745,6 +1436,11 @@ function computeVisibleIds() {
 
 function applyFiltersImmediate() {
   if (aggregateMode) return;
+  if (readableTreeMode) {
+    _treeLayoutCacheKey = '';
+    applyReadableTreeLayout(true);
+    return;
+  }
   const sel = network.getSelectedNodes()[0] || null;
   const allowed = computeVisibleIds();
   const nu = [];
@@ -767,11 +1463,11 @@ function applyFiltersImmediate() {
   } else {
     applyVisualState();
   }
-  if (!aggregateMode && document.getElementById('cb-hierarchical').checked) {
+  if (!aggregateMode && document.getElementById('cb-hierarchical').checked && readableTreeMode) {
     if (_hierLayoutDebounce) clearTimeout(_hierLayoutDebounce);
     _hierLayoutDebounce = setTimeout(() => {
       _hierLayoutDebounce = null;
-      setHierarchicalLayoutMode();
+      applyReadableTreeLayout(true);
     }, 140);
   }
 }
@@ -847,7 +1543,23 @@ document.getElementById('cb-aggregate').addEventListener('change', (e) => {
 });
 document.getElementById('cb-hierarchical').addEventListener('change', (e) => {
   if (_suppressHierCheckbox) return;
+  const box = document.getElementById('tree-hier-params');
+  if (box) box.style.display = e.target.checked ? 'block' : 'none';
   applyLayoutModeFromCheckbox();
+});
+let _treeParamTimer = null;
+['tree-max-depth', 'tree-max-nodes', 'tree-max-edges', 'tree-max-children'].forEach((tid) => {
+  const el = document.getElementById(tid);
+  if (!el) return;
+  el.addEventListener('change', () => {
+    if (!document.getElementById('cb-hierarchical').checked) return;
+    _treeLayoutCacheKey = '';
+    if (_treeParamTimer) clearTimeout(_treeParamTimer);
+    _treeParamTimer = setTimeout(() => {
+      _treeParamTimer = null;
+      applyReadableTreeLayout(true);
+    }, 220);
+  });
 });
 
 const legendEl = document.getElementById('legend');
@@ -1176,9 +1888,13 @@ LEGEND.forEach(c => {
   }
 
   function openTraceFromGlobal(nodeId) {
-    if (!nodeId) return;
+    if (!nodeId) {
+      return;
+    }
     var now = Date.now();
-    if (now - _traceLastOpenTs < 280) return;
+    if (now - _traceLastOpenTs < 280) {
+      return;
+    }
     _traceLastOpenTs = now;
     traceExpandedOverflow = new Set();
     window.enterTraceView(nodeId, false);
@@ -1422,30 +2138,31 @@ LEGEND.forEach(c => {
   }
 
   window.enterTraceView = function (nodeId, smooth) {
-    console.log('[TRACE] enterTraceView called, nodeId:', nodeId);
     traceFocusId = nodeId;
     lastTraceEnterId = nodeId;
     var tr = computePathTrace(RAW_NODES, RAW_LINKS, nodeId, traceExpandedOverflow);
-    console.log('[TRACE] pathTrace result:', tr);
-    var vis = buildTraceVisData(tr, nodeId);
+    /** 必须用独立变量名，勿用 `vis`，否则会遮蔽 window.vis（vis-network 全局命名空间） */
+    var traceVisData = buildTraceVisData(tr, nodeId);
     (tr.overflowNodes || []).forEach(function (o) {
       if (String(o.id).indexOf('__overflow_') === 0) {
-        for (var j = 0; j < vis.nodes.length; j++) {
-          if (vis.nodes[j].id === o.id) {
-            vis.nodes[j].label = '还有 ' + o.count + ' 个…';
+        for (var j = 0; j < traceVisData.nodes.length; j++) {
+          if (traceVisData.nodes[j].id === o.id) {
+            traceVisData.nodes[j].label = '还有 ' + o.count + ' 个…';
           }
         }
       }
     });
 
     var container = document.getElementById('graph-trace');
-    if (!container) return;
+    if (!container) {
+      return;
+    }
 
     var gg = document.getElementById('graph-global');
     var gw = document.getElementById('graph-trace-wrap');
     if (gg) gg.style.display = 'none';
     if (gw) gw.style.display = 'flex';
-    /** 从 display:none 切到可见后，同一 tick 内 clientWidth/height 常为 0，vis 会建 0×0 画布 → 空白 */
+    /** 从 display:none 切到可见后，同一 tick 内 clientWidth/height 常为 0，Vis 库会建 0×0 画布 → 空白 */
     if (gw) void gw.offsetHeight;
     void container.offsetHeight;
 
@@ -1471,29 +2188,41 @@ LEGEND.forEach(c => {
         return;
       }
 
-      networkTrace = new vis.Network(
-        container,
-        { nodes: new vis.DataSet(vis.nodes), edges: new vis.DataSet(vis.edges) },
-        {
-          autoResize: true,
-          physics: false,
-          layout: {
-            hierarchical: {
-              enabled: false,
+      var visNs = typeof window !== 'undefined' ? window.vis : undefined;
+      if (typeof visNs === 'undefined' || typeof visNs.Network !== 'function') {
+        return;
+      }
+
+      try {
+        networkTrace = new visNs.Network(
+          container,
+          {
+            nodes: new visNs.DataSet(traceVisData.nodes),
+            edges: new visNs.DataSet(traceVisData.edges),
+          },
+          {
+            autoResize: true,
+            physics: false,
+            layout: {
+              hierarchical: {
+                enabled: false,
+              },
             },
-          },
-          interaction: {
-            hover: true,
-            tooltipDelay: 80,
-            zoomView: true,
-            dragView: true,
-            dragNodes: false,
-          },
-          edges: {
-            smooth: { type: 'cubicBezier', roundness: 0.25 },
-          },
-        }
-      );
+            interaction: {
+              hover: true,
+              tooltipDelay: 80,
+              zoomView: true,
+              dragView: true,
+              dragNodes: false,
+            },
+            edges: {
+              smooth: { type: 'cubicBezier', roundness: 0.25 },
+            },
+          }
+        );
+      } catch (eNet) {
+        return;
+      }
 
       networkTrace.on('doubleClick', function (p) {
         if (!p.nodes.length) return;
@@ -1554,7 +2283,6 @@ LEGEND.forEach(c => {
   };
 
   window.setViewMode = function (mode) {
-    console.log('[TRACE] setViewMode:', mode);
     var gg = document.getElementById('graph-global');
     var gw = document.getElementById('graph-trace-wrap');
     var btnG = document.getElementById('vm-global');
@@ -1582,13 +2310,20 @@ LEGEND.forEach(c => {
   };
 
   network.on('click', function (params) {
-    console.log('[TRACE] click fired, nodes:', params.nodes);
     if (typeof aggregateMode !== 'undefined' && aggregateMode) return;
     syncVmTraceButton();
     var nid = resolveGlobalTraceNodeId(params);
     var now = Date.now();
     if (nid && _traceClickNid === nid && now - _traceClickTs < 480) {
-      console.log('[TRACE] double activation via click timing, node:', nid);
+      if (
+        typeof document !== 'undefined' &&
+        document.getElementById('cb-hierarchical') &&
+        document.getElementById('cb-hierarchical').checked
+      ) {
+        _traceClickTs = 0;
+        _traceClickNid = null;
+        return;
+      }
       openTraceFromGlobal(nid);
       _traceClickTs = 0;
       _traceClickNid = null;
@@ -1599,10 +2334,18 @@ LEGEND.forEach(c => {
   });
 
   network.on('doubleClick', function (params) {
-    console.log('[TRACE] doubleClick fired, nodes:', params.nodes);
+    if (
+      typeof document !== 'undefined' &&
+      document.getElementById('cb-hierarchical') &&
+      document.getElementById('cb-hierarchical').checked
+    ) {
+      return;
+    }
     if (typeof aggregateMode !== 'undefined' && aggregateMode) return;
     var nid = resolveGlobalTraceNodeId(params);
-    if (!nid) return;
+    if (!nid) {
+      return;
+    }
     openTraceFromGlobal(nid);
   });
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-从 graphify-out/graph.json 生成增强版 graph.html（单文件内嵌 JSON，可直接 file:// 打开）。
+从 graphify-out/graph.json 生成增强版 graph.html（内嵌 JSON，可直接 file:// 打开）。
+同目录会复制 vis-network.min.js（来自 tools/third_party/vis-network.min.js），避免仅依赖 CDN 导致 vis 未加载。
 
 功能：社区着色、度数缩放、滚轮缩放/拖拽画布/拖拽节点、节点详情（路径/位置/邻居）、
 顶部按函数名/文件名搜索、代码/文档/概念类型筛选、选中时邻边高亮与其余节点变暗。
@@ -22,6 +23,7 @@ import argparse
 import html as html_mod
 import json
 import math
+import shutil
 from collections import defaultdict
 from pathlib import Path
 
@@ -192,6 +194,7 @@ def render_html(
     meta_edges: list[dict],
     stats: str,
     trace_fragment: str,
+    tree_fragment: str,
 ) -> str:
     nodes_json = _js_safe(vis_nodes)
     edges_json = _js_safe(vis_edges)
@@ -199,18 +202,24 @@ def render_html(
     meta_nodes_json = _js_safe(meta_nodes)
     meta_edges_json = _js_safe(meta_edges)
 
-    script = f"""
+    script_head = f"""
 const RAW_NODES = {nodes_json};
 const RAW_EDGES = {edges_json};
 const LEGEND = {legend_json};
 const META_NODES_RAW = {meta_nodes_json};
 const META_EDGES_RAW = {meta_edges_json};
 const NODE_BY_ID = new Map(RAW_NODES.map(n => [n.id, n]));
+"""
+    script = script_head + tree_fragment + f"""
 
 let aggregateMode = false;
 let _suppressAggCheckbox = false;
 let _suppressHierCheckbox = false;
 let _hierLayoutDebounce = null;
+let readableTreeMode = false;
+const treeExpandedOverflow = new Set();
+let _treeLayoutCacheKey = '';
+let _treeLayoutCacheRes = null;
 
 function esc(s) {{
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
@@ -356,6 +365,20 @@ function showInfo(nodeId) {{
     const relHtml = rel ? `<span class="rel-tag">${{esc(rel)}}</span>` : '';
     return `<div class="neighbor-row"><span class="neighbor-link" style="border-left-color:${{esc(c)}}" data-nid="${{esc(nid)}}">${{esc(nb ? nb.label : nid)}}</span>${{relHtml}}</div>`;
   }}).join('');
+  let treeBlock = '';
+  if (readableTreeMode && window.__lastReadableTreeMeta) {{
+    const R = window.__lastReadableTreeMeta;
+    const tm = R.nodeMeta && R.nodeMeta[nodeId];
+    if (tm) {{
+      treeBlock += `<div class="field dim">树状子图 · 层级 ${{tm.level}} · 上游展示/总数 ${{tm.upShown}}/${{tm.upTotal}} · 下游展示/总数 ${{tm.downShown}}/${{tm.downTotal}}</div>`;
+    }}
+    if (R.hiddenNodeCount || R.hiddenEdgeCount) {{
+      treeBlock += `<div class="field dim">相对全图：约隐藏 ${{R.hiddenNodeCount}} 节点 · ${{R.hiddenEdgeCount}} 条边未入子图</div>`;
+    }}
+    if (R.overflowNodes && R.overflowNodes.length) {{
+      treeBlock += `<div class="field dim">存在折叠分支：双击「还有 N 个…」可展开该向</div>`;
+    }}
+  }}
   document.getElementById('info-content').innerHTML = `
     <div class="field"><b>${{esc(n.label)}}</b></div>
     <div class="field">类型: ${{esc(n._file_type || n._ui_type || 'unknown')}}</div>
@@ -363,6 +386,7 @@ function showInfo(nodeId) {{
     <div class="field">文件: ${{esc(n._source_file || '-')}}</div>
     <div class="field">位置: ${{fmtLoc(n._source_location)}}</div>
     <div class="field">度数: ${{n._degree}}</div>
+    ${{treeBlock}}
     ${{neighborIds.length ? `<div class="field dim">相邻节点与关系 (${{neighborIds.length}})</div><div id="neighbors-list">${{neighborItems}}</div>` : ''}}
   `;
   document.querySelectorAll('.neighbor-link').forEach(el => {{
@@ -379,6 +403,17 @@ function focusNode(nodeId) {{
 }}
 
 function computeMaxVisibleDegree() {{
+  if (readableTreeMode) {{
+    let maxVisDeg = 1;
+    nodesDS.getIds().forEach(id => {{
+      const nd = nodesDS.get(id);
+      if (!nd || nd.hidden) return;
+      const raw = NODE_BY_ID.get(id);
+      const d = raw && raw.degree != null ? raw.degree : 0;
+      if (d > maxVisDeg) maxVisDeg = d;
+    }});
+    return maxVisDeg;
+  }}
   let maxVisDeg = 1;
   RAW_NODES.forEach(n => {{
     const nd = nodesDS.get(n.id);
@@ -404,6 +439,23 @@ function policyFontSizeForNode(n, maxVisDeg, focus) {{
 /** 标签策略：关 = 仅 Python  baked 的高度数标签；开 = 可见子图内高分位度数 + 搜索焦点子图 */
 function applyLabelPolicy() {{
   if (aggregateMode) return;
+  if (readableTreeMode) {{
+    const q = document.getElementById('search').value.toLowerCase().trim();
+    const focus = q ? computeSearchFocusIds(q) : null;
+    const maxVisDeg = computeMaxVisibleDegree();
+    const nu = [];
+    nodesDS.getIds().forEach(id => {{
+      const nd = nodesDS.get(id);
+      if (!nd || nd.hidden) return;
+      const raw = NODE_BY_ID.get(id);
+      if (!raw) return;
+      const {{ bf, fs }} = policyFontSizeForNode(raw, maxVisDeg, focus);
+      const big = nd._treeOnMain || raw.degree >= Math.max(5, maxVisDeg * 0.12);
+      nu.push({{ id, font: {{ ...bf, size: big ? Math.max(fs, 11) : fs }} }});
+    }});
+    if (nu.length) nodesDS.update(nu);
+    return;
+  }}
   const q = document.getElementById('search').value.toLowerCase().trim();
   const focus = q ? computeSearchFocusIds(q) : null;
   const maxVisDeg = computeMaxVisibleDegree();
@@ -417,45 +469,108 @@ function applyLabelPolicy() {{
   if (nu.length) nodesDS.update(nu);
 }}
 
-/** 分层树状：沿边方向自上而下；含环时布局可能交叉，属正常现象 */
+/** 分层树状：可读子图 + 固定坐标 + 自上而下（上游在上）；全量 1000+ 节点不进入 vis 分层引擎 */
 function setHierarchicalLayoutMode() {{
   if (aggregateMode) return;
+  readableTreeMode = true;
+  applyReadableTreeLayout(true);
+}}
+
+function treeLayoutCacheKey(focusId, opts) {{
+  const hid = [...hiddenCommunities].sort((a, b) => a - b).join('-');
+  const tc =
+    (document.getElementById('f-code').checked ? '1' : '0') +
+    (document.getElementById('f-doc').checked ? '1' : '0') +
+    (document.getElementById('f-concept').checked ? '1' : '0');
+  const ex = [...treeExpandedOverflow].sort().join('|');
+  return [focusId || '', allowedNodesCountForTree(), hid, tc, ex, opts.maxDepth, opts.maxNodes, opts.maxEdges, opts.maxChildrenPerNode].join('#');
+}}
+
+function allowedNodesCountForTree() {{
+  let c = 0;
+  RAW_NODES.forEach(n => {{ if (baseEligible(n)) c++; }});
+  return c;
+}}
+
+function applyReadableTreeLayout(force) {{
+  if (!readableTreeMode || aggregateMode) return;
+  const allowed = new Set();
+  RAW_NODES.forEach(n => {{ if (baseEligible(n)) allowed.add(n.id); }});
+  const focus = network.getSelectedNodes()[0] || null;
+  const opts = {{
+    focusNodeId: focus,
+    allowedIds: allowed,
+    rawNodes: RAW_NODES,
+    rawEdges: RAW_EDGES,
+    NODE_BY_ID,
+    legend: LEGEND,
+    expandedOverflow: treeExpandedOverflow,
+    maxDepth: Math.max(1, Math.min(12, parseInt(document.getElementById('tree-max-depth').value, 10) || 4)),
+    maxNodes: Math.max(20, Math.min(500, parseInt(document.getElementById('tree-max-nodes').value, 10) || 200)),
+    maxEdges: Math.max(50, Math.min(1200, parseInt(document.getElementById('tree-max-edges').value, 10) || 400)),
+    maxChildrenPerNode: Math.max(4, Math.min(40, parseInt(document.getElementById('tree-max-children').value, 10) || 12)),
+  }};
+  const ck = treeLayoutCacheKey(focus, opts);
+  if (!force && ck === _treeLayoutCacheKey && _treeLayoutCacheRes) {{
+    /* 使用缓存 */
+  }} else {{
+    _treeLayoutCacheRes = computeReadableTreeLayout(opts);
+    _treeLayoutCacheKey = ck;
+  }}
+  const res = _treeLayoutCacheRes;
+  window.__lastReadableTreeMeta = res;
+  nodesDS.clear();
+  edgesDS.clear();
+  nodesDS.add(res.visNodes);
+  edgesDS.add(res.visEdges);
   network.setOptions({{
-    layout: {{
-      hierarchical: {{
-        enabled: true,
-        direction: 'UD',
-        sortMethod: 'directed',
-        levelSeparation: 240,
-        nodeSpacing: 200,
-        treeSpacing: 320,
-        blockShifting: true,
-        edgeMinimization: true,
-        parentCentralization: true,
-        shakeTowards: 'leaves',
-      }},
-      improvedLayout: true,
-      randomSeed: 42,
-    }},
+    layout: {{ hierarchical: {{ enabled: false }}, improvedLayout: false, randomSeed: 42 }},
     physics: {{ enabled: false }},
+    interaction: {{
+      hover: true,
+      hoverConnectedEdges: false,
+      selectConnectedEdges: false,
+      tooltipDelay: 220,
+      hideEdgesOnDrag: true,
+      hideEdgesOnZoom: true,
+      dragNodes: false,
+      dragView: true,
+      zoomView: true,
+      zoomSpeed: 1.02,
+      navigationButtons: false,
+      keyboard: false,
+      multiselect: false,
+    }},
     edges: {{
-      smooth: {{
-        type: 'cubicBezier',
-        forceDirection: 'vertical',
-        roundness: 0.35,
-      }},
+      smooth: false,
+      selectionWidth: 3,
+      font: {{ size: 0, strokeWidth: 0 }},
+      arrows: {{ to: {{ enabled: true, scaleFactor: 0.42 }} }},
     }},
   }});
-  network.once('stabilizationIterationsDone', () => {{
-    try {{ network.fit({{ animation: false }}); }} catch (e) {{}}
-    applyLabelPolicy();
-    applyVisualState();
-  }});
-  network.stabilize();
+  try {{ network.fit({{ animation: false }}); }} catch (e0) {{}}
+  applyLabelPolicy();
+  const sel = res.focusNodeId;
+  if (sel && nodesDS.get(sel)) {{
+    network.selectNodes([sel]);
+    applySelectionHighlight(sel);
+    showInfo(sel);
+  }} else {{
+    network.unselectAll();
+    applySelectionHighlight(null);
+  }}
 }}
 
 function setForceDirectedLayoutMode() {{
   if (aggregateMode) return;
+  readableTreeMode = false;
+  _treeLayoutCacheKey = '';
+  _treeLayoutCacheRes = null;
+  treeExpandedOverflow.clear();
+  nodesDS.clear();
+  edgesDS.clear();
+  nodesDS.add(RAW_NODES.map(nodeToDatasetItem));
+  edgesDS.add(RAW_EDGES);
   network.setOptions({{
     layout: {{
       hierarchical: {{ enabled: false }},
@@ -481,7 +596,24 @@ function setForceDirectedLayoutMode() {{
     edges: {{
       smooth: false,
     }},
+    interaction: {{
+      hover: true,
+      hoverConnectedEdges: false,
+      selectConnectedEdges: false,
+      tooltipDelay: 220,
+      hideEdgesOnDrag: false,
+      hideEdgesOnZoom: false,
+      hideEdgesOnViewportDrag: false,
+      dragNodes: true,
+      dragView: true,
+      zoomView: true,
+      zoomSpeed: 1.02,
+      navigationButtons: false,
+      keyboard: false,
+      multiselect: false,
+    }},
   }});
+  applyFiltersImmediate();
   network.once('stabilizationIterationsDone', () => {{
     network.setOptions({{ physics: {{ enabled: false }} }});
     try {{ network.storePositions(); }} catch (e) {{}}
@@ -506,6 +638,22 @@ network.on('zoomEnd', () => {{
   }}, 90);
 }});
 
+network.on('doubleClick', (params) => {{
+  if (aggregateMode) return;
+  if (!document.getElementById('cb-hierarchical').checked) return;
+  const nid = params.nodes[0];
+  if (!nid) return;
+  if (String(nid).startsWith('__tree_ov__')) {{
+    treeExpandedOverflow.add(nid);
+    _treeLayoutCacheKey = '';
+    applyReadableTreeLayout(true);
+    return;
+  }}
+  network.selectNodes([nid]);
+  _treeLayoutCacheKey = '';
+  applyReadableTreeLayout(true);
+}});
+
 function setAggregateChrome(on) {{
   const tf = document.getElementById('type-filters');
   tf.style.opacity = on ? '0.45' : '1';
@@ -516,6 +664,8 @@ function setAggregateChrome(on) {{
   lw.style.pointerEvents = on ? 'none' : 'auto';
   const hcb = document.getElementById('cb-hierarchical');
   hcb.disabled = !!on;
+  const tbox = document.getElementById('tree-hier-params');
+  if (tbox) tbox.style.display = on ? 'none' : (hcb.checked ? 'block' : 'none');
   if (on) {{
     _suppressHierCheckbox = true;
     hcb.checked = false;
@@ -536,6 +686,10 @@ function syncLegendCheckboxesFromHidden() {{
 
 function enterAggregateView() {{
   aggregateMode = true;
+  readableTreeMode = false;
+  _treeLayoutCacheKey = '';
+  _treeLayoutCacheRes = null;
+  treeExpandedOverflow.clear();
   network.unselectAll();
   setAggregateChrome(true);
   nodesDS.clear();
@@ -643,6 +797,10 @@ function computeSearchFocusIds(q) {{
 }}
 
 function applySearchHighlight(q) {{
+  if (readableTreeMode) {{
+    applySelectionHighlight(network.getSelectedNodes()[0] || null);
+    return;
+  }}
   const focus = computeSearchFocusIds(q);
   if (!focus) {{
     applySelectionHighlight(null);
@@ -680,6 +838,45 @@ function applySearchHighlight(q) {{
 }}
 
 function applySelectionHighlight(selectedId) {{
+  if (readableTreeMode) {{
+    const nids = nodesDS.getIds();
+    const nu = [];
+    const eu = [];
+    const neigh =
+      selectedId && nodesDS.get(selectedId)
+        ? new Set(
+            [...network.getConnectedNodes(selectedId), selectedId].filter(id => {{
+              const nd = nodesDS.get(id);
+              return nd && nd.hidden !== true;
+            }})
+          )
+        : null;
+    nids.forEach(id => {{
+      const nd = nodesDS.get(id);
+      if (!nd) return;
+      const baseC = BASE_NODE.get(id) || nd.color;
+      const hi = !selectedId || neigh.has(id);
+      nu.push({{
+        id,
+        color: hi ? baseC : {{ background: '#1e293b', border: '#0f172a' }},
+        opacity: hi ? 1 : 0.2,
+        borderWidth: selectedId && id === selectedId ? 4 : nd.borderWidth,
+      }});
+    }});
+    edgesDS.getIds().forEach(eid => {{
+      const ed = edgesDS.get(eid);
+      const hit = selectedId && (ed.from === selectedId || ed.to === selectedId);
+      eu.push({{
+        id: eid,
+        width: hit ? Math.max(3, ed.width || 1) : Math.max(0.5, (ed.width || 1) * 0.65),
+        color: hit ? {{ color: '#38bdf8', opacity: 0.95 }} : {{ color: '#475569', opacity: 0.14 }},
+        arrows: ed.arrows || {{ to: {{ enabled: true, scaleFactor: 0.42 }} }},
+      }});
+    }});
+    if (nu.length) nodesDS.update(nu);
+    if (eu.length) edgesDS.update(eu);
+    return;
+  }}
   const nu = [];
   const eu = [];
   const q = document.getElementById('search').value.toLowerCase().trim();
@@ -821,6 +1018,11 @@ function computeVisibleIds() {{
 
 function applyFiltersImmediate() {{
   if (aggregateMode) return;
+  if (readableTreeMode) {{
+    _treeLayoutCacheKey = '';
+    applyReadableTreeLayout(true);
+    return;
+  }}
   const sel = network.getSelectedNodes()[0] || null;
   const allowed = computeVisibleIds();
   const nu = [];
@@ -843,11 +1045,11 @@ function applyFiltersImmediate() {{
   }} else {{
     applyVisualState();
   }}
-  if (!aggregateMode && document.getElementById('cb-hierarchical').checked) {{
+  if (!aggregateMode && document.getElementById('cb-hierarchical').checked && readableTreeMode) {{
     if (_hierLayoutDebounce) clearTimeout(_hierLayoutDebounce);
     _hierLayoutDebounce = setTimeout(() => {{
       _hierLayoutDebounce = null;
-      setHierarchicalLayoutMode();
+      applyReadableTreeLayout(true);
     }}, 140);
   }}
 }}
@@ -923,7 +1125,23 @@ document.getElementById('cb-aggregate').addEventListener('change', (e) => {{
 }});
 document.getElementById('cb-hierarchical').addEventListener('change', (e) => {{
   if (_suppressHierCheckbox) return;
+  const box = document.getElementById('tree-hier-params');
+  if (box) box.style.display = e.target.checked ? 'block' : 'none';
   applyLayoutModeFromCheckbox();
+}});
+let _treeParamTimer = null;
+['tree-max-depth', 'tree-max-nodes', 'tree-max-edges', 'tree-max-children'].forEach((tid) => {{
+  const el = document.getElementById(tid);
+  if (!el) return;
+  el.addEventListener('change', () => {{
+    if (!document.getElementById('cb-hierarchical').checked) return;
+    _treeLayoutCacheKey = '';
+    if (_treeParamTimer) clearTimeout(_treeParamTimer);
+    _treeParamTimer = setTimeout(() => {{
+      _treeParamTimer = null;
+      applyReadableTreeLayout(true);
+    }}, 220);
+  }});
 }});
 
 const legendEl = document.getElementById('legend');
@@ -1028,7 +1246,7 @@ LEGEND.forEach(c => {{
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Graphify 增强视图 · fpai</title>
-<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<script src="vis-network.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/vis-network@9.1.9/standalone/umd/vis-network.min.js'"></script>
 {styles}
 </head>
 <body>
@@ -1048,7 +1266,7 @@ LEGEND.forEach(c => {{
     <label><input type="checkbox" id="f-concept" checked> 概念</label>
   </div>
 </div>
-<p class="hint">缩放/拖拽时边保持绘制 · 「分层树状」适合看调用/依赖上下级 · 含环时层次可能交叉 · 「社区聚合」与分层互斥（聚合时自动关分层）</p>
+<p class="hint">缩放/拖拽时边保持绘制 · 「分层树状」为<strong>可读子图</strong>（≤200 节点 / 400 边，固定坐标）· 「社区聚合」与分层互斥（聚合时自动关分层）</p>
 <div id="main">
   <div class="graph-stack">
     <div id="graph-global"></div>
@@ -1070,8 +1288,17 @@ LEGEND.forEach(c => {{
         <input type="checkbox" id="cb-aggregate"> 社区聚合概览（点社区展开）
       </label>
       <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#cbd5e1;cursor:pointer;margin-top:10px;user-select:none;">
-        <input type="checkbox" id="cb-hierarchical"> 分层树状布局（自上而下，沿有向边）
+        <input type="checkbox" id="cb-hierarchical"> 分层树状布局（可读子图 · 固定坐标 · 自上而下）
       </label>
+      <div id="tree-hier-params" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid #1f2937;font-size:12px;color:#94a3b8;">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+          <label>最大层数 <input type="number" id="tree-max-depth" value="4" min="1" max="12" style="width:48px;background:#0b0f14;border:1px solid #334155;color:#e2e8f0;border-radius:4px;padding:2px 4px"></label>
+          <label>最多节点 <input type="number" id="tree-max-nodes" value="200" min="20" max="500" style="width:52px;background:#0b0f14;border:1px solid #334155;color:#e2e8f0;border-radius:4px;padding:2px 4px"></label>
+          <label>最多边 <input type="number" id="tree-max-edges" value="400" min="50" max="1200" style="width:56px;background:#0b0f14;border:1px solid #334155;color:#e2e8f0;border-radius:4px;padding:2px 4px"></label>
+          <label>每节点子数 <input type="number" id="tree-max-children" value="12" min="4" max="40" style="width:48px;background:#0b0f14;border:1px solid #334155;color:#e2e8f0;border-radius:4px;padding:2px 4px"></label>
+        </div>
+        <div style="margin-top:6px;font-size:11px;color:#64748b">双击节点以之为中心重算子图；双击「还有 N 个…」展开该向分支。拖拽/缩放时自动隐藏边以减负。</div>
+      </div>
     </div>
     <div id="info-panel">
       <h3>节点详情</h3>
@@ -1111,10 +1338,21 @@ def main() -> None:
     stats = f"{n} 节点 · {e} 边 · {ccount} 个社区 — 由 tools/build_graphify_enhanced_html.py 自 graph.json 生成"
     frag_path = Path(__file__).resolve().parent / "trace_view_fragment.js"
     trace_js = frag_path.read_text(encoding="utf-8") if frag_path.is_file() else ""
-    html = render_html(vis_nodes, vis_edges, legend, meta_nodes, meta_edges, stats, trace_js)
+    tree_path = Path(__file__).resolve().parent / "tree_layout_fragment.js"
+    tree_js = tree_path.read_text(encoding="utf-8") if tree_path.is_file() else ""
+    html = render_html(vis_nodes, vis_edges, legend, meta_nodes, meta_edges, stats, trace_js, tree_js)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(html, encoding="utf-8")
-    print(f"Wrote {args.out.resolve()} ({n} nodes)")
+    vis_bundle = Path(__file__).resolve().parent / "third_party" / "vis-network.min.js"
+    vis_out = args.out.parent / "vis-network.min.js"
+    if vis_bundle.is_file():
+        shutil.copy2(vis_bundle, vis_out)
+        print(f"Wrote {args.out.resolve()} ({n} nodes) and {vis_out.resolve()}")
+    else:
+        print(
+            f"Wrote {args.out.resolve()} ({n} nodes); 警告: 缺少 {vis_bundle}，"
+            "graph.html 将仅靠 onerror 回退 CDN 加载 vis-network",
+        )
 
 
 if __name__ == "__main__":

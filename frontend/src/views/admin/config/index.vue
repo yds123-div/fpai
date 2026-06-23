@@ -153,10 +153,14 @@ const handleSave = async () => {
     return
   }
 
-  // 检查服务地址是否包含路径（应该只填基础地址）
-  if (baseUrl && (baseUrl.includes('/api/') || baseUrl.includes('/knowledge'))) {
-    message.warning('服务地址应该只填写基础地址，例如：http://139.9.59.175:8080')
-    return
+  // 自动将服务地址修正为基础地址（去除 /api/ 等路径后缀）
+  if (baseUrl) {
+    try {
+      const u = new URL(baseUrl)
+      formState.base_url = u.origin
+    } catch (_) {
+      // 不是合法 URL 则不自动修正，由后端校验
+    }
   }
 
   // 检查是否填写了新密钥

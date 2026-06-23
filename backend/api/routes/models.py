@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from fastapi import APIRouter
@@ -131,12 +132,16 @@ async def test_connection(body: ModelTestBody):
         # remote
         # Remote(OpenAI兼容)：用最小的 chat/completions 请求做连通性测试。
         # 说明：很多服务的 /v1 根路径与 /v1/models 并不对外开放或不支持 GET，因此用 POST 更通用。
+        import re as _re_test
         bu = base_url.strip().rstrip("/")
-        if bu.endswith("/v1"):
+        if _re_test.search(r"/v\d+$", bu):
             url = bu + "/chat/completions"
         else:
             url = bu + "/v1/chat/completions"
         headers: dict[str, str] = {"Accept": "application/json"}
+        if not api_key:
+            # 未传 api_key 时从网关环境变量回退
+            api_key = (os.getenv("LLM_API_KEY") or "").strip()
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
         headers["Content-Type"] = "application/json"

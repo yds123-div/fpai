@@ -290,9 +290,13 @@
   }
 
   function openTraceFromGlobal(nodeId) {
-    if (!nodeId) return;
+    if (!nodeId) {
+      return;
+    }
     var now = Date.now();
-    if (now - _traceLastOpenTs < 280) return;
+    if (now - _traceLastOpenTs < 280) {
+      return;
+    }
     _traceLastOpenTs = now;
     traceExpandedOverflow = new Set();
     window.enterTraceView(nodeId, false);
@@ -536,30 +540,31 @@
   }
 
   window.enterTraceView = function (nodeId, smooth) {
-    console.log('[TRACE] enterTraceView called, nodeId:', nodeId);
     traceFocusId = nodeId;
     lastTraceEnterId = nodeId;
     var tr = computePathTrace(RAW_NODES, RAW_LINKS, nodeId, traceExpandedOverflow);
-    console.log('[TRACE] pathTrace result:', tr);
-    var vis = buildTraceVisData(tr, nodeId);
+    /** 必须用独立变量名，勿用 `vis`，否则会遮蔽 window.vis（vis-network 全局命名空间） */
+    var traceVisData = buildTraceVisData(tr, nodeId);
     (tr.overflowNodes || []).forEach(function (o) {
       if (String(o.id).indexOf('__overflow_') === 0) {
-        for (var j = 0; j < vis.nodes.length; j++) {
-          if (vis.nodes[j].id === o.id) {
-            vis.nodes[j].label = '还有 ' + o.count + ' 个…';
+        for (var j = 0; j < traceVisData.nodes.length; j++) {
+          if (traceVisData.nodes[j].id === o.id) {
+            traceVisData.nodes[j].label = '还有 ' + o.count + ' 个…';
           }
         }
       }
     });
 
     var container = document.getElementById('graph-trace');
-    if (!container) return;
+    if (!container) {
+      return;
+    }
 
     var gg = document.getElementById('graph-global');
     var gw = document.getElementById('graph-trace-wrap');
     if (gg) gg.style.display = 'none';
     if (gw) gw.style.display = 'flex';
-    /** 从 display:none 切到可见后，同一 tick 内 clientWidth/height 常为 0，vis 会建 0×0 画布 → 空白 */
+    /** 从 display:none 切到可见后，同一 tick 内 clientWidth/height 常为 0，Vis 库会建 0×0 画布 → 空白 */
     if (gw) void gw.offsetHeight;
     void container.offsetHeight;
 
@@ -585,29 +590,41 @@
         return;
       }
 
-      networkTrace = new vis.Network(
-        container,
-        { nodes: new vis.DataSet(vis.nodes), edges: new vis.DataSet(vis.edges) },
-        {
-          autoResize: true,
-          physics: false,
-          layout: {
-            hierarchical: {
-              enabled: false,
+      var visNs = typeof window !== 'undefined' ? window.vis : undefined;
+      if (typeof visNs === 'undefined' || typeof visNs.Network !== 'function') {
+        return;
+      }
+
+      try {
+        networkTrace = new visNs.Network(
+          container,
+          {
+            nodes: new visNs.DataSet(traceVisData.nodes),
+            edges: new visNs.DataSet(traceVisData.edges),
+          },
+          {
+            autoResize: true,
+            physics: false,
+            layout: {
+              hierarchical: {
+                enabled: false,
+              },
             },
-          },
-          interaction: {
-            hover: true,
-            tooltipDelay: 80,
-            zoomView: true,
-            dragView: true,
-            dragNodes: false,
-          },
-          edges: {
-            smooth: { type: 'cubicBezier', roundness: 0.25 },
-          },
-        }
-      );
+            interaction: {
+              hover: true,
+              tooltipDelay: 80,
+              zoomView: true,
+              dragView: true,
+              dragNodes: false,
+            },
+            edges: {
+              smooth: { type: 'cubicBezier', roundness: 0.25 },
+            },
+          }
+        );
+      } catch (eNet) {
+        return;
+      }
 
       networkTrace.on('doubleClick', function (p) {
         if (!p.nodes.length) return;
@@ -668,7 +685,6 @@
   };
 
   window.setViewMode = function (mode) {
-    console.log('[TRACE] setViewMode:', mode);
     var gg = document.getElementById('graph-global');
     var gw = document.getElementById('graph-trace-wrap');
     var btnG = document.getElementById('vm-global');
@@ -696,13 +712,20 @@
   };
 
   network.on('click', function (params) {
-    console.log('[TRACE] click fired, nodes:', params.nodes);
     if (typeof aggregateMode !== 'undefined' && aggregateMode) return;
     syncVmTraceButton();
     var nid = resolveGlobalTraceNodeId(params);
     var now = Date.now();
     if (nid && _traceClickNid === nid && now - _traceClickTs < 480) {
-      console.log('[TRACE] double activation via click timing, node:', nid);
+      if (
+        typeof document !== 'undefined' &&
+        document.getElementById('cb-hierarchical') &&
+        document.getElementById('cb-hierarchical').checked
+      ) {
+        _traceClickTs = 0;
+        _traceClickNid = null;
+        return;
+      }
       openTraceFromGlobal(nid);
       _traceClickTs = 0;
       _traceClickNid = null;
@@ -713,10 +736,18 @@
   });
 
   network.on('doubleClick', function (params) {
-    console.log('[TRACE] doubleClick fired, nodes:', params.nodes);
+    if (
+      typeof document !== 'undefined' &&
+      document.getElementById('cb-hierarchical') &&
+      document.getElementById('cb-hierarchical').checked
+    ) {
+      return;
+    }
     if (typeof aggregateMode !== 'undefined' && aggregateMode) return;
     var nid = resolveGlobalTraceNodeId(params);
-    if (!nid) return;
+    if (!nid) {
+      return;
+    }
     openTraceFromGlobal(nid);
   });
 

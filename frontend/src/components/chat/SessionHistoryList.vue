@@ -94,7 +94,7 @@ function onSelect(sessionId: string) {
   if (chatBusy.value) return
   if (!sessionId) return
   storage.set('chat_session_id', sessionId)
-  router.push({ path: '/fpai/chat', query: { sessionId } })
+  router.push({ path: '/chat', query: { sessionId } })
 }
 
 function onPageChange(p: number) {
