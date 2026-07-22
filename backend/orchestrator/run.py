@@ -82,6 +82,20 @@ def _format_multi_task_response(
     return result.strip()
 
 
+def _build_user_notice(dropped: list[dict[str, Any]]) -> str:
+    """ADR-0001 决策 3：部分放行时的模板化用户提示（模板拼接，不调 LLM）。
+    在最终答复开头插入，对用户隐藏内部 jargon；被丢弃任务的技术细节由 plan() 落审计。"""
+    parts: list[str] = []
+    for d in dropped:
+        t = d.get("task")
+        q = t.get("question") if isinstance(t, dict) else None
+        q = (q or "").strip() if isinstance(q, str) else ""
+        parts.append(f"「{q or '（无法识别的内容）'}」")
+    if not parts:
+        return ""
+    return "您的问题中，以下部分我暂时无法处理：" + "、".join(parts) + "。您可以换个问法重新提问。"
+
+
 @dataclass
 class ChatTurnResult:
     """单轮编排结果，与 chat API 契约对齐。"""
@@ -283,6 +297,7 @@ async def run_chat_turn_async(
         progress_callback=progress_callback,
         stream_callback=_stream_with_ttft if callable(stream_callback) else None,
         show_thinking=bool(show_thinking),
+        answer_id=result.answer_id,  # ADR-0001 决策 5：供 CoordinatorAgent.plan 落 plan 校验审计事件
     )
     # 多任务执行时避免“子任务输出 + 最终融合输出”重复拼接：
     # 子任务阶段禁用 token 流式，仅在 final_composing 阶段允许流式输出。
@@ -528,6 +543,14 @@ async def run_chat_turn_async(
     else:
         result.raw_reply = reply_text  # 保存剥离前的原始文本（含 <think>）
         reply_text = _strip_think_blocks(reply_text, show_thinking=bool(show_thinking))
+
+    # ADR-0001 决策 3：部分放行时在最终答复开头插入模板化用户提示（模板拼接，不调 LLM）。
+    # 覆盖单任务与多任务：partial_pass 可能只保留 1 个任务（走单任务分支），仍需提示被丢弃的部分。
+    dropped_tasks = plan.get("dropped") if isinstance(plan, dict) else None
+    if dropped_tasks:
+        notice = _build_user_notice(dropped_tasks)
+        if notice:
+            reply_text = (notice + "\n\n" + reply_text) if reply_text else notice
 
     # 结构化输出：由业务 agent 写入 ctx_obj.structured_outputs，这里统一透传给 API（SSE done / 非流式 JSON）
     try:

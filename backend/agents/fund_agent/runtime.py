@@ -20,6 +20,9 @@ class AgentRunContext:
     product_ids: list[str] | None = None
     customer_profile: str | None = None
 
+    # 本轮答复的审计锚点（由 orchestrator/run.py 注入；plan 校验事件据此落 audit，ADR-0001 决策 5）
+    answer_id: str | None = None
+
     # 模型覆盖（来自 model_id 的 ai_models 配置）
     model_name: str | None = None
     base_url: str | None = None

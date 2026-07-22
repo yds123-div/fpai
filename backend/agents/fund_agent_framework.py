@@ -32,6 +32,9 @@ from agents.fund_agent.product_interpret.agent import ProductInterpretAgent
 from agents.fund_agent.product_compare.agent import ProductCompareAgent
 from agents.fund_agent.other.agent import OtherAgent
 
+# ADR-0001：plan 校验+重试闭环（白名单/校验/重试环的唯一归属）
+from agents.plan_validation import VALID_TASK_TYPES, run_plan_with_retry
+
 # 公共运行时：上下文/LLM调用/进度回调等（避免循环导入）
 from agents.fund_agent.runtime import (
     AgentRunContext,
@@ -54,145 +57,6 @@ def _safe_first_str(x: Any) -> str:
     except Exception:
         return ""
 
-
-def _parse_plan_output(s: str) -> dict[str, Any] | None:
-    """
-    解析 Coordinator 输出（预期 JSON）。
-    期望：
-    {
-      "multi": true/false,
-      "tasks": [{"type": "...", "question": "..."}],
-      "final_instruction": "..."
-    }
-    """
-    if not s:
-        return None
-    s = s.strip()
-    try:
-        obj = json.loads(s)
-    except Exception:
-        return None
-    if not isinstance(obj, dict):
-        return None
-    tasks = obj.get("tasks")
-    if tasks is not None and not isinstance(tasks, list):
-        return None
-    return obj
-
-
-def _extract_json_object(text: str) -> str | None:
-    """
-    从模型输出中尽量提取 JSON object 字符串：
-    - 先去掉 <think>...</think>
-    - 支持 ```json ... ``` 代码块
-    - 否则提取第一个顶层 {...}（按括号计数）
-    - 尝试修复常见的 JSON 语法错误
-    """
-    if not text:
-        return None
-    s = (text or "").strip()
-    # 1) 去掉 think
-    try:
-        import re
-
-        s = re.sub(r"<think>[\s\S]*?</think>", "", s, flags=re.IGNORECASE).strip()
-    except Exception:
-        s = s.strip()
-
-    # 2) fenced code block
-    if "```" in s:
-        try:
-            import re
-
-            m = re.search(r"```(?:json)?\s*([\s\S]*?)```", s, flags=re.IGNORECASE)
-            if m:
-                cand = (m.group(1) or "").strip()
-                if cand.startswith("{"):
-                    # 尝试验证和修复 JSON
-                    fixed = _try_fix_json(cand)
-                    if fixed:
-                        return fixed
-        except Exception:
-            pass
-
-    # 3) first top-level {...}
-    start = s.find("{")
-    if start == -1:
-        return None
-    depth = 0
-    for i in range(start, len(s)):
-        ch = s[i]
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                candidate = s[start : i + 1]
-                # 尝试验证和修复 JSON
-                fixed = _try_fix_json(candidate)
-                if fixed:
-                    return fixed
-                return candidate
-    return None
-
-
-def _try_fix_json(json_str: str) -> str | None:
-    """
-    尝试修复常见的 JSON 语法错误：
-    1. 验证 JSON 是否有效
-    2. 如果无效，尝试修复常见问题（如多余的右花括号）
-    """
-    if not json_str:
-        return None
-    
-    # 先尝试直接解析
-    try:
-        json.loads(json_str)
-        return json_str
-    except Exception:
-        pass
-    
-    # 尝试修复：移除末尾多余的 }
-    try:
-        # 统计花括号数量
-        open_count = json_str.count("{")
-        close_count = json_str.count("}")
-        
-        if close_count > open_count:
-            # 从末尾移除多余的 }
-            excess = close_count - open_count
-            temp = json_str
-            for _ in range(excess):
-                # 找到最后一个 }
-                last_brace = temp.rfind("}")
-                if last_brace != -1:
-                    temp = temp[:last_brace] + temp[last_brace + 1:]
-            
-            # 验证修复后的 JSON
-            json.loads(temp)
-            return temp
-    except Exception:
-        pass
-    
-    # 尝试修复：移除末尾多余的 } 之前的内容
-    try:
-        import re
-        # 查找最后一个完整的 JSON 对象
-        # 从第一个 { 开始，找到匹配的 }
-        depth = 0
-        for i, ch in enumerate(json_str):
-            if ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 0:
-                    candidate = json_str[:i + 1]
-                    json.loads(candidate)
-                    return candidate
-    except Exception:
-        pass
-    
-    return None
 
 def _safe_json_loads(s: str) -> Any:
     try:
@@ -509,6 +373,41 @@ COORDINATOR_DEFAULT_SYSTEM_PROMPT = """
 - 子任务 question 必须是中文自然句，且能直接交给对应智能体执行。
 """.strip()
 
+# ADR-0001 决策 6：prompt 与校验器共同引用白名单，消灭两处漂移。
+# 这里的断言保证 prompt 散文中出现的 type 集合 == plan_validation.VALID_TASK_TYPES，
+# 若新增/改名 type 而忘了同步 prompt，导入即失败。
+assert all(tp in COORDINATOR_DEFAULT_SYSTEM_PROMPT for tp in VALID_TASK_TYPES), (
+    "COORDINATOR_DEFAULT_SYSTEM_PROMPT 的 type 列表与 plan_validation.VALID_TASK_TYPES 不一致"
+)
+
+
+def _emit_plan_audit_events(ctx: "AgentRunContext", events: list[dict[str, Any]]) -> None:
+    """ADR-0001 决策 5：把 plan 校验/重试/兜底/部分放行事件落审计（复用 audit.append_event）。
+
+    事件类型：plan_validation_error / plan_retry_success / plan_fallback_heuristic / plan_partial_drop。
+    answer_id 缺失时跳过（由 run.py 在构建 ctx 时注入 answer_id）；审计写入失败不影响主流程。
+    """
+    answer_id = getattr(ctx, "answer_id", None)
+    if not answer_id or not events:
+        return
+    try:
+        from audit import append_event
+
+        for evt in events:
+            event_type = evt.get("event") or ""
+            if not event_type:
+                continue
+            payload = {k: v for k, v in evt.items() if k != "event"}
+            append_event(
+                answer_id,
+                event_type,
+                payload,
+                session_id=getattr(ctx, "session_id", None),
+                user_id=getattr(ctx, "user_id", None),
+            )
+    except Exception as e:
+        logger.warning("emit plan audit events failed: %s", e)
+
 
 class IntentClassifierAgent:
     """
@@ -638,27 +537,45 @@ class CoordinatorAgent:
             await _emit_progress(ctx, "coordinator_planning")
             from model_gateway.llm import llm_chat
 
-            try:
+            # ADR-0001 决策 2：plan 输出经 run_plan_with_retry 校验+重试闭环。
+            # 单次 LLM 调用的 30s 超时在回调内保留（ADR 负面代价条款：每次 30s 超时不变）；
+            # 超时/网络异常上抛 -> 由本函数末尾 except 走启发式兜底（与改造前行为一致），
+            # 本闭环只处理“模型输出可解析但校验不通过”的自愈型错误。
+            async def _planner_llm_call(msgs: list[dict[str, str]]) -> str:
                 raw = await asyncio.wait_for(
                     asyncio.to_thread(
                         llm_chat,
-                        [{"role": "system", "content": system_prompt}, {"role": "user", "content": user}],
+                        msgs,
                         model=planner_ctx.model_name,
                         base_url=planner_ctx.base_url,
                         api_key=planner_ctx.api_key,
                     ),
                     timeout=30,
                 )
-            except asyncio.TimeoutError:
-                logger.warning("Coordinator plan llm_chat timeout (30s), fallback to heuristic")
+                return _safe_first_str(raw)
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user},
+            ]
+            retry_result = await run_plan_with_retry(messages, _planner_llm_call)
+            _emit_plan_audit_events(ctx, retry_result.get("events") or [])
+
+            plan = retry_result.get("plan")
+            if not plan:
+                # 重试耗尽仍不可用 -> 启发式兜底（与改造前 plan 解析失败降级一致）
+                logger.warning(
+                    "Coordinator plan validation exhausted, fallback to heuristic: status=%s",
+                    retry_result.get("status"),
+                )
                 cat = _heuristic_classify(q)
                 return {"multi": False, "tasks": [{"type": cat, "question": q}], "final_instruction": ""}
-            raw_text = _safe_first_str(raw)
-            json_text = _extract_json_object(raw_text) or raw_text
-            plan = _parse_plan_output(json_text) or None
-            if not plan:
-                raise ValueError("plan json parse failed")
-            # 归一化 tasks
+
+            dropped = retry_result.get("dropped") or []
+            # 归一化 tasks（L3 基金代码处理）。
+            # 白名单已由 validate_plan 保证（决策 6 单一权威），此处不再二次过滤；
+            # 旧提示词的 kb_search/free_answer -> other 映射已删除（新 prompt 只列 4 类，
+            # 旧 type 由 validate_plan 判 L2 错误触发重试自愈，白名单唯一权威）。
             tasks = plan.get("tasks") or []
             planner_codes = _extract_codes_from_planner_skill_payload(planner_skill_payload)
             planner_name_code_pairs = _extract_name_code_pairs_from_planner_skill_payload(planner_skill_payload)
@@ -669,11 +586,6 @@ class CoordinatorAgent:
                 tp = _safe_first_str(t.get("type"))
                 qq = _safe_first_str(t.get("question"))
                 if not tp or not qq:
-                    continue
-                # 兼容旧提示词输出：kb_search/free_answer 统一映射到 other
-                if tp in ("kb_search", "free_answer"):
-                    tp = "other"
-                if tp not in ("product_query", "product_interpret", "product_compare", "other"):
                     continue
                 # 最小纠偏：当用户已选择知识库、且问题更像“知识解释类”而非具体产品查询时，
                 # 将误判的 product_* 下修为 other，避免误触发基金代码强约束。
@@ -687,7 +599,6 @@ class CoordinatorAgent:
                 ):
                     tp = "other"
                 if tp in ("product_query", "product_interpret", "product_compare"):
-                    qq_before = qq
                     codes_for_task = _pick_codes_for_question(qq, planner_name_code_pairs, planner_codes)
                     if codes_for_task:
                         qq = _rewrite_task_question_with_codes(qq, codes_for_task, tp)
@@ -718,12 +629,17 @@ class CoordinatorAgent:
             if not norm:
                 # 回退单任务
                 cat = _heuristic_classify(q)
-                return {"multi": False, "tasks": [{"type": cat, "question": q}], "final_instruction": ""}
+                return {"multi": False, "tasks": [{"type": cat, "question": q}], "final_instruction": "", "dropped": dropped}
             return {
                 "multi": multi,
                 "tasks": norm,
                 "final_instruction": _safe_first_str(plan.get("final_instruction")),
+                "dropped": dropped,
             }
+        except asyncio.TimeoutError:
+            logger.warning("Coordinator plan llm_chat timeout (30s), fallback to heuristic")
+            cat = _heuristic_classify(q)
+            return {"multi": False, "tasks": [{"type": cat, "question": q}], "final_instruction": ""}
         except Exception as e:
             logger.warning("Coordinator plan failed, fallback to heuristic: %s", e)
             cat = _heuristic_classify(q)
