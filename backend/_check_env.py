@@ -5,6 +5,10 @@ import socket
 import sys
 import traceback
 
+from dotenv import load_dotenv
+
+load_dotenv()  # 从 .env 读取配置（密钥等不硬编码）
+
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 results = []
@@ -31,7 +35,8 @@ if tcp_check("MySQL", "127.0.0.1", 3306):
         import pymysql
         conn = pymysql.connect(
             host="127.0.0.1", port=3306, user="root",
-            password="REDACTED", database="fpai", connect_timeout=5,
+            password=os.environ.get("MYSQL_PASSWORD", ""),
+            database="fpai", connect_timeout=5,
         )
         with conn.cursor() as cur:
             cur.execute("SHOW TABLES")
@@ -49,7 +54,7 @@ if tcp_check("MySQL", "127.0.0.1", 3306):
 if tcp_check("Redis", "localhost", 6379):
     try:
         import redis
-        r = redis.Redis(host="localhost", port=6379, db=0, password="REDACTED", socket_timeout=5)
+        r = redis.Redis(host="localhost", port=6379, db=0, password=os.environ.get("REDIS_PASSWORD", ""), socket_timeout=5)
         info = r.ping()
         report("Redis PING", True, f"ping={info}")
     except Exception as e:
@@ -72,8 +77,8 @@ if tcp_check("MinIO", "106.55.151.240", 9000, timeout=8):
         from minio import Minio
         client = Minio(
             "106.55.151.240:9000",
-            access_key="REDACTED",
-            secret_key="REDACTED",
+            access_key=os.environ.get("MINIO_ACCESS_KEY", ""),
+            secret_key=os.environ.get("MINIO_SECRET_KEY", ""),
             secure=False,
         )
         buckets = [b.name for b in client.list_buckets()]
@@ -89,7 +94,7 @@ try:
     import httpx
     resp = httpx.post(
         "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
-        headers={"Authorization": "Bearer REDACTED"},
+        headers={"Authorization": f"Bearer {os.environ.get('LLM_API_KEY', '')}"},
         json={
             "model": "deepseek-v4-flash-260425",
             "messages": [{"role": "user", "content": "hi"}],
@@ -109,7 +114,7 @@ except Exception as e:
 try:
     resp = httpx.post(
         "https://ark.cn-beijing.volces.com/api/plan/v3/embeddings",
-        headers={"Authorization": "Bearer REDACTED"},
+        headers={"Authorization": f"Bearer {os.environ.get('EMBEDDING_API_KEY', '')}"},
         json={"model": "doubao-embedding-vision", "input": ["测试"]},
         timeout=30,
     )
@@ -125,7 +130,7 @@ except Exception as e:
 try:
     resp = httpx.post(
         "https://api.siliconflow.cn/v1/rerank",
-        headers={"Authorization": "Bearer REDACTED"},
+        headers={"Authorization": f"Bearer {os.environ.get('RERANKER_API_KEY', '')}"},
         json={
             "model": "BAAI/bge-reranker-v2-m3",
             "query": "基金",
@@ -144,7 +149,7 @@ except Exception as e:
 try:
     resp = httpx.get(
         "http://139.9.59.175:8080/api/v1/knowledge-bases",
-        headers={"X-API-Key": "REDACTED"},
+        headers={"X-API-Key": os.environ.get("EXTERNAL_KB_API_KEY", "")},
         timeout=10,
     )
     report("外部知识库", resp.status_code == 200, f"HTTP {resp.status_code}: {resp.text[:150]}")
