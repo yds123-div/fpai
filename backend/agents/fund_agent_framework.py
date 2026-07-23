@@ -33,7 +33,9 @@ from agents.fund_agent.product_compare.agent import ProductCompareAgent
 from agents.fund_agent.other.agent import OtherAgent
 
 # ADR-0001：plan 校验+重试闭环（白名单/校验/重试环的唯一归属）
-from agents.plan_validation import VALID_TASK_TYPES, run_plan_with_retry
+# ADR-0003 决策 5：coordinator prompt 的 type 漂移校验已从 import 时 assert
+# 迁至 tests/test_prompt_drift.py（加载 coordinator.md 校验 == plan_validation.VALID_TASK_TYPES）。
+from agents.plan_validation import run_plan_with_retry
 
 # 公共运行时：上下文/LLM调用/进度回调等（避免循环导入）
 from agents.fund_agent.runtime import (
@@ -373,12 +375,8 @@ COORDINATOR_DEFAULT_SYSTEM_PROMPT = """
 - 子任务 question 必须是中文自然句，且能直接交给对应智能体执行。
 """.strip()
 
-# ADR-0001 决策 6：prompt 与校验器共同引用白名单，消灭两处漂移。
-# 这里的断言保证 prompt 散文中出现的 type 集合 == plan_validation.VALID_TASK_TYPES，
-# 若新增/改名 type 而忘了同步 prompt，导入即失败。
-assert all(tp in COORDINATOR_DEFAULT_SYSTEM_PROMPT for tp in VALID_TASK_TYPES), (
-    "COORDINATOR_DEFAULT_SYSTEM_PROMPT 的 type 列表与 plan_validation.VALID_TASK_TYPES 不一致"
-)
+# ADR-0003 决策 5：type 漂移校验已迁至 tests/test_prompt_drift.py（import 时 assert 已退役，
+# 降级为测试时检查，仍被 CI 拦）。coordinator prompt 文件见 backend/agents/prompts/coordinator.md。
 
 
 def _emit_plan_audit_events(ctx: "AgentRunContext", events: list[dict[str, Any]]) -> None:
