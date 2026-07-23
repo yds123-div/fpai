@@ -47,6 +47,32 @@ def test_coordinator_prompt_mentions_every_task_type() -> None:
         assert tp in prompt, f"coordinator prompt 缺少 type: {tp}"
 
 
+def test_coordinator_constant_type_list_matches_valid_task_types() -> None:
+    """旧链路运行时仍用 COORDINATOR_DEFAULT_SYSTEM_PROMPT 常量（T10 切换前），
+    故常量的 type 列表也须 == VALID_TASK_TYPES--保原 import 时 assert 的保证，
+    防有人改了常量忘了同步（常量改了但 .md 没改时本测试失败）。"""
+    from agents.fund_agent_framework import COORDINATOR_DEFAULT_SYSTEM_PROMPT
+
+    types_found = re.findall(r"^-\s+(\w+)：", COORDINATOR_DEFAULT_SYSTEM_PROMPT, re.MULTILINE)
+    assert set(types_found) == set(VALID_TASK_TYPES), (
+        f"COORDINATOR_DEFAULT_SYSTEM_PROMPT type 列表 {sorted(set(types_found))} "
+        f"!= VALID_TASK_TYPES {sorted(set(VALID_TASK_TYPES))}"
+    )
+
+
+def test_coordinator_file_matches_constant() -> None:
+    """coordinator.md 与运行时常量必须内容一致（迁移期双份，防漂移）。
+
+    迁移期 .md（新链路权威源）与 .py 常量（旧链路运行时）暂时并存，本测试守住两者一致；
+    T10 删除常量、新链路改读 .md 后，本测试可移除。
+    """
+    from agents.fund_agent_framework import COORDINATOR_DEFAULT_SYSTEM_PROMPT
+
+    assert load_prompt("coordinator") == COORDINATOR_DEFAULT_SYSTEM_PROMPT.strip(), (
+        "coordinator.md 与 COORDINATOR_DEFAULT_SYSTEM_PROMPT 常量内容不一致（迁移期应保持一致）"
+    )
+
+
 # ---------------------------------------------------------------------------
 # 薄 loader：fail-fast + 缓存复用（ADR-0003 决策 1）
 # ---------------------------------------------------------------------------
@@ -98,17 +124,20 @@ def test_sys_prompt_carries_analysis_contract() -> None:
 
 
 def test_sys_prompt_tool_descriptions_only_describe_data() -> None:
-    """工具描述只写"取什么数"，不背分析契约（T2 设计原则）。"""
+    """工具描述只写"取什么数"，不背分析契约（T2 设计原则）。
+
+    可用工具段的描述行（以 "- " 开头）不得含分析动词契约（评价/给出观点/综合分析等）--
+    分析契约在 Skills/Rules/Output Format，工具只负责取数。
+    """
     prompt = load_prompt("sys_prompt")
-    # 工具段标记存在
-    assert "可用工具" in prompt or "工具" in prompt
-    # 工具描述不含分析动词契约（"评价/给出观点"只在 Role/Skills，不在工具描述行）
-    tool_section = prompt.split("可用工具", 1)[-1].split("## Skills", 1)[0] if "可用工具" in prompt else ""
-    if tool_section:
-        # 工具行应是"取数"描述，不含"分析/评价/给出观点"
-        for line in tool_section.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("- "):
-                assert "分析" not in stripped or "取" in stripped, (
-                    f"工具描述行疑似背了分析契约：{stripped}"
+    assert "可用工具" in prompt
+    # 提取"可用工具"段（到下一个 ## 标题 ## Skills 前）
+    tool_section = prompt.split("可用工具", 1)[-1].split("## Skills", 1)[0]
+    analysis_verbs = ("评价", "给出观点", "给出你的观点", "综合分析", "分析评价")
+    for line in tool_section.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            for verb in analysis_verbs:
+                assert verb not in stripped, (
+                    f"工具描述行背了分析契约（含分析动词 {verb}）：{stripped}"
                 )
