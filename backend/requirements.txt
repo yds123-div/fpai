@@ -1,13 +1,13 @@
 # 金融产品解析智能体后端依赖（一期）
-# Python 3.10+
+# Python 3.12+（代码含 PEP 701 嵌套引号 f-string；agentscope 2.0 亦要求 >=3.11）
 
 # API 与异步
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
 python-multipart>=0.0.6
 
-# 多智能体框架（T024+ 编排与智能体时使用）
-agentscope>=1.0.16
+# 多智能体框架（2.0 为大重写：模块名单数化、ReActAgent 改名 Agent；pin >=2.0.4 确保新装环境不走失真的 0.x/1.x）
+agentscope>=2.0.4
 
 # 数据与存储（T003+ 按任务逐步引入）
 pymysql>=1.1.0
