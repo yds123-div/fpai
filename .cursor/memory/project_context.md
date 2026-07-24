@@ -86,7 +86,7 @@ fpai/
 
 | 用途 | 说明 |
 |------|------|
-| **Python 包管理** | `pip` 或 `uv`；建议 Python 3.10+，`pip install -r requirements.txt` 或 `uv pip install -r requirements.txt` |
+| **Python 包管理** | `pip` 或 `uv`；建议 Python 3.12+（代码含 PEP 701 嵌套引号 f-string，agentscope 2.0 亦要求 >=3.11），`pip install -r requirements.txt` 或 `uv pip install -r requirements.txt` |
 | **前端包管理** | `npm` / `pnpm` / `yarn`；`npm install` 或 `pnpm install` |
 | **安装依赖（后端）** | `cd backend && pip install -e .` 或 `pip install -r requirements.txt`（含 agentscope、fastapi、uvicorn 等） |
 | **安装依赖（前端）** | `cd frontend && npm install` |
