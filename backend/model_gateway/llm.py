@@ -1,72 +1,35 @@
 """
-LLM 统一调用：优先通过 AgentScope（OpenAIChatModel/DashScopeChatModel）调用。
-超时与熔断由 gateway 层统一处理。
+LLM 统一调用：通过 GatewayChatModel（原生 AgentScope ChatModelBase 子类）调用。
+
+T4 #22：``llm_chat`` 改为 ``stream=False`` 的 ``GatewayChatModel`` 薄包装
+（7 调用者零改动，对外契约不变）。熔断/httpx 回退/Opik span 预留统一在
+``GatewayChatModel._call_api`` 内；本模块仅做同步桥接（解 async 模型 <-> 同步
+对外契约）+ 文本抽取。``llm_chat_stream`` 保留 httpx 直连流式（栅栏 #6 形态
+由 T8 ShapeAdapter 定）。
+
+异常类从 ``model_gateway.exceptions`` re-export，向后兼容
+``from model_gateway.llm import ModelGatewayError`` 等既有 import。
 """
 from __future__ import annotations
 
 import asyncio
 import concurrent.futures
-import os
 from typing import Any, AsyncGenerator
 
-from model_gateway.config import GatewayConfig, load_gateway_config, LLMConfig
-from model_gateway._circuit import is_open, record_failure, record_success
+from model_gateway.config import GatewayConfig, load_gateway_config
+from model_gateway.exceptions import ModelGatewayError, ModelNotConfiguredError
+from model_gateway.gateway_model import build_gateway_model, _dicts_to_msgs
 from pkg.logger import get_logger
+
 logger = get_logger(__name__)
-try:
-    from agentscope.model import OpenAIChatModel, DashScopeChatModel
-    _AGENTSCOPE_AVAILABLE = True
-except ImportError:
-    OpenAIChatModel = None  # type: ignore[misc, assignment]
-    DashScopeChatModel = None  # type: ignore[misc, assignment]
-    _AGENTSCOPE_AVAILABLE = False
 
-
-class ModelGatewayError(Exception):
-    """模型网关调用异常。"""
-    pass
-
-
-class ModelNotConfiguredError(ModelGatewayError):
-    """未配置模型地址。"""
-    pass
-
-
-def _create_agentscope_model(llm: LLMConfig, *, enable_thinking: bool = False):
-    """根据 config 创建 AgentScope ChatModel（与 routing/faq 逻辑一致）。"""
-    if not _AGENTSCOPE_AVAILABLE or (OpenAIChatModel is None and DashScopeChatModel is None):
-        return None
-    base_url = (llm.base_url or "").strip()
-    api_key = (llm.api_key or "").strip()
-    gen = {"temperature": llm.temperature, "max_tokens": llm.max_tokens}
-
-    def _try_build(model_cls: Any, kwargs: dict) -> Any | None:
-        """尝试用 enable_thinking 创建模型；若不支持则回退到不带该参数。"""
-        for attempt_kwargs in (kwargs, {k: v for k, v in kwargs.items() if k != "enable_thinking"}):
-            try:
-                return model_cls(**attempt_kwargs)
-            except TypeError:
-                continue
-        return None
-
-    if base_url:
-        return _try_build(OpenAIChatModel, dict(
-            model_name=llm.model or "qwen3-32b",
-            api_key=api_key or None,
-            stream=False,
-            client_kwargs={"base_url": base_url},
-            generate_kwargs=gen,
-            enable_thinking=bool(enable_thinking),
-        ))
-    if api_key:
-        return _try_build(DashScopeChatModel, dict(
-            model_name=llm.model or "qwen3-32b",
-            api_key=api_key,
-            stream=False,
-            generate_kwargs=gen,
-            enable_thinking=bool(enable_thinking),
-        ))
-    return None
+__all__ = [
+    "ModelGatewayError",
+    "ModelNotConfiguredError",
+    "llm_chat",
+    "llm_chat_stream",
+    "build_gateway_model",
+]
 
 
 def _content_from_chat_response(response: Any) -> str:
@@ -94,18 +57,19 @@ def _content_from_chat_response(response: Any) -> str:
     return "\n".join(parts).strip()
 
 
-async def _chat_via_agentscope(model: Any, messages: list[dict]) -> str:
-    """通过 AgentScope 模型调用（async 内部）；创建时已用 stream=False，响应为单次结果。"""
-    logger.info(f"通过 AgentScope 模型调用：{model}")
-    logger.info(f"通过 AgentScope 模型调用：messages：{messages}")
-    resp = await model(messages)
-    logger.info(f"通过 AgentScope 模型调用：resp：{resp}")
-    # 本网关统一 stream=False，不按流式消费，避免 DashScope 返回对象带 __aiter__ 却非真流导致异常
+async def _chat_via_gateway(model: Any, messages: list[dict]) -> str:
+    """通过 GatewayChatModel 调用（async 内部，stream=False 单次结果）。
+
+    ``llm_chat`` 对外是同步 + ``list[dict]``；``GatewayChatModel.__call__`` 是
+    async + ``list[Msg]``。本函数做 list[dict] -> list[Msg] 转换 + 调用 + 文本抽取。
+    """
+    msgs = _dicts_to_msgs(messages)
+    resp = await model(msgs)
     return _content_from_chat_response(resp)
 
 
-def _run_agentscope_in_new_loop(model: Any, messages: list[dict]) -> str:
-    """在独立事件循环中运行 _chat_via_agentscope（用于线程内调用，避免与主循环冲突）。"""
+def _run_gateway_in_new_loop(model: Any, messages: list[dict]) -> str:
+    """在独立事件循环中运行 _chat_via_gateway（用于线程内调用，避免与主循环冲突）。"""
     loop = asyncio.new_event_loop()
     try:
         # 确保协程/回调在该 loop 上正确注册
@@ -115,7 +79,7 @@ def _run_agentscope_in_new_loop(model: Any, messages: list[dict]) -> str:
         except Exception:
             prev_loop = None
         asyncio.set_event_loop(loop)
-        return loop.run_until_complete(_chat_via_agentscope(model, messages))
+        return loop.run_until_complete(_chat_via_gateway(model, messages))
     finally:
         # 某些底层库（如 httpx/anyio）会在退出阶段异步关闭连接池。
         # 若直接 loop.close()，可能触发 "RuntimeError: Event loop is closed"。
@@ -147,10 +111,16 @@ def llm_chat(
     *,
     enable_thinking: bool = False,
 ) -> str:
-    """
-    调用 LLM 对话接口：优先通过 AgentScope（OpenAIChatModel/DashScopeChatModel）调用；
-    未安装或未配置 AgentScope 时回退到 httpx 直连。未配置任何可用方式时抛出 ModelNotConfiguredError。
-    支持熔断：key 为 "llm"。
+    """调用 LLM 对话接口（同步，对外契约不变）。
+
+    T4 #22：薄包装 stream=False 的 GatewayChatModel。熔断/httpx 回退/Opik span
+    预留统一在 ``GatewayChatModel._call_api`` 内；本函数仅做同步桥接。未配置
+    （无 base_url 且无 api_key）时抛 ``ModelNotConfiguredError``；熔断打开或
+    fallback 耗尽时抛 ``ModelGatewayError``（约束：抛异常不静默）。
+
+    7 个调用者（retrieval / compliance×2 / knowledge / runtime / framework）
+    零改动：签名 ``(messages, model, base_url, api_key, config, *,
+    enable_thinking) -> str`` 不变。
     """
     cfg = config or load_gateway_config()
     if model:
@@ -159,74 +129,30 @@ def llm_chat(
         cfg.llm.base_url = base_url
     if api_key is not None:
         cfg.llm.api_key = api_key
-    llm = cfg.llm
-    key = "llm"
-    if is_open(key):
-        raise ModelGatewayError("LLM 熔断中，请稍后重试")
-    try:
-        agentscope_model = _create_agentscope_model(llm, enable_thinking=enable_thinking)
-    except Exception:
-        agentscope_model = None
-    if agentscope_model is not None:
-        try:
-            try:
-                asyncio.get_running_loop()
-            except RuntimeError:
-                running_loop = None
-            else:
-                running_loop = True
-            if running_loop is None:
-                content = asyncio.run(_chat_via_agentscope(agentscope_model, messages))
-            else:
-                # 已在事件循环中（如 FastAPI 异步请求）：在线程内新建 loop 执行，避免 asyncio.run() 报错
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                    content = pool.submit(
-                        _run_agentscope_in_new_loop, agentscope_model, messages
-                    ).result()
-            record_success(key)
-            return content or ""
-        except Exception as e:
-            record_failure(key, cfg.circuit_breaker_threshold, cfg.circuit_breaker_seconds)
-            logger.warning("AgentScope LLM 调用失败，尝试 httpx 直连: %s", e)
-            # fallthrough to httpx direct call below
 
-    # httpx 直连回退（AgentScope 未安装或调用失败时）
-    bu = (llm.base_url or "").strip()
-    api_key_direct = (llm.api_key or "").strip()
-    model_direct = (llm.model or "").strip()
-    if bu:
-        import re as _re2
-        import json as _json2
-        if not _re2.search(r"/v\d+$", bu.rstrip("/")):
-            bu = bu.rstrip("/") + "/v1"
-        url = bu.rstrip("/") + "/chat/completions"
-        headers: dict[str, str] = {"Content-Type": "application/json"}
-        if api_key_direct:
-            headers["Authorization"] = f"Bearer {api_key_direct}"
-        payload: dict[str, Any] = {
-            "model": model_direct or "qwen3-32b",
-            "messages": messages,
-            "max_tokens": llm.max_tokens,
-            "temperature": llm.temperature,
-            "stream": False,
-        }
-        try:
-            import httpx as _httpx2
-        except ImportError:
-            raise ModelNotConfiguredError("httpx 未安装，无法调用 LLM")
-        try:
-            resp = _httpx2.post(url, json=payload, headers=headers, timeout=llm.timeout_seconds)
-            resp.raise_for_status()
-            data = resp.json()
-            choices = data.get("choices") or []
-            if choices:
-                content = choices[0].get("message", {}).get("content", "")
-                record_success(key)
-                return content or ""
-        except Exception as e2:
-            record_failure(key, cfg.circuit_breaker_threshold, cfg.circuit_breaker_seconds)
-            raise ModelGatewayError(f"LLM 直连调用失败: {e2}") from e2
-    raise ModelNotConfiguredError("LLM_BASE_URL 未配置且无可用的 LLM 调用方式")
+    # 工厂在无 base_url 且无 api_key 时抛 ModelNotConfiguredError（对外契约一致）
+    gm = build_gateway_model(stream=False, config=cfg, enable_thinking=enable_thinking)
+
+    # 同步桥接 async 模型：检测是否已在事件循环内
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        running_loop = False
+    else:
+        running_loop = True
+
+    if not running_loop:
+        # 无运行 loop：直接 asyncio.run
+        content = asyncio.run(_chat_via_gateway(gm, messages))
+    else:
+        # 已在 loop 内（如 FastAPI 异步请求）：线程内新建 loop 执行，
+        # 避免 asyncio.run() 报错。注：ADR-0002 contextvars 约束由此路径引入，
+        # Opik span 恢复时需在主线程包裹工作线程（见 gateway_model 注释）。
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            content = pool.submit(
+                _run_gateway_in_new_loop, gm, messages
+            ).result()
+    return content or ""
 
 
 async def llm_chat_stream(
