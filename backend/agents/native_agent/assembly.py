@@ -36,6 +36,7 @@ from agentscope.model import ChatModelBase
 from agentscope.state import AgentState
 from agentscope.tool import Toolkit
 
+from agents.native_agent.audit_middleware import AuditMiddleware
 from agents.native_agent.structured_collector import StructuredOutputsCollector
 from agents.prompts.loader import load_prompt
 from agents.tools.fund_tools import (
@@ -64,26 +65,33 @@ def build_fund_agent(
     middlewares: list[MiddlewareBase] | None = None,
     max_iters: int = DEFAULT_MAX_ITERS,
     enable_thinking: bool = False,
+    attach_audit: bool = True,
 ) -> tuple[Agent, StructuredOutputsCollector]:
     """装配原生 fund ``Agent``（T6 核心组装）。
 
     组合 T2 sys_prompt + T4 GatewayChatModel(stream=True) + T5 Toolkit/permission +
-    ``AgentState(permission_context)`` + ``ReActConfig(max_iters=8)`` + collector 中间件。
+    ``AgentState(permission_context)`` + ``ReActConfig(max_iters=8)`` + collector 中间件
+    + T7 ``AuditMiddleware``（栅栏 #4 审计适配层，默认挂载）。
 
     Args:
         model: 模型（默认 T4 ``build_gateway_model(stream=True)``；测试注入假 ChatModelBase）。
         toolkit: 工具集（默认 T5 ``build_fund_toolkit``；测试注入桩工具集）。
         state: agent 状态（默认 ``AgentState(permission_context=build_fund_permission_context())``；
             测试可注入带/不带 permission_context 的 state）。
-        middlewares: 额外中间件（T7 审计/on_model_call 等后续挂入）。collector 自动追加。
+        middlewares: 额外中间件（TracingMiddleware 等观测层）。collector 与 audit 自动追加。
         max_iters: ReAct 循环上限（默认 8，SI-7）。
         enable_thinking: 透传给 GatewayChatModel 的推理开关。
+        attach_audit: 是否默认挂 ``AuditMiddleware``（栅栏 #4，T7 #25）。测试可关。
 
     Returns:
         ``(agent, collector)``：调 ``await agent.reply(...)`` 拿最终文本后，用
         ``collector.build_structured_output(final_text)`` 产出 ``FundAnalysisOutput``。
     """
     all_mw: list[MiddlewareBase] = list(middlewares or [])
+    # T7 #25：栅栏 #4 审计适配层（D5 与 TracingMiddleware 分立独立）。
+    # 无 answer_id（contextvar 未设）时 AuditMiddleware 跳过落库，故默认挂载安全。
+    if attach_audit and not any(isinstance(m, AuditMiddleware) for m in all_mw):
+        all_mw.append(AuditMiddleware())
     existing = next(
         (m for m in all_mw if isinstance(m, StructuredOutputsCollector)),
         None,
