@@ -1,10 +1,10 @@
 # ISSUES
 
-Here are the open issues in the repo:
+Here are the open issues marked for Sandcastle (with the `Sandcastle` label):
 
 <issues-json>
 
-!`gh issue list --state open --limit 100 --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'`
+!`gh issue list --state open --label Sandcastle --limit 100 --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'`
 
 </issues-json>
 
@@ -23,6 +23,10 @@ An issue B is **blocked by** issue A if:
 An issue is **unblocked** if it has zero blocking dependencies on other open issues.
 
 For each unblocked issue, assign a branch name using the exact format `sandcastle/issue-{id}` (no slug or other suffix). This must be deterministic so that re-planning the same issue always produces the same branch name and accumulated progress is preserved.
+
+# PROJECT CONTEXT
+
+This is **fpai** - 金融产品智能问答与辅助决策系统. Backend Python (FastAPI + AgentScope), frontend Vue 3. Prefer well-scoped, backend-focused issues for parallel execution; avoid issues that need running MySQL/Redis/MinIO infrastructure to verify.
 
 # OUTPUT
 

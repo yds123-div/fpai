@@ -39,15 +39,15 @@ const planSchema = z.object({
 const MAX_ITERATIONS = 10;
 
 // Hooks run inside the sandbox before the agent starts each iteration.
-// npm install ensures the sandbox always has fresh dependencies.
+// uv sync installs backend Python deps (uv manages Python 3.12 itself).
+// --all-extras pulls dev (pytest) + agent (agentscope) optional deps.
 const hooks = {
-  sandbox: { onSandboxReady: [{ command: "npm install" }] },
+  sandbox: { onSandboxReady: [{ command: "cd backend && uv sync --all-extras" }] },
 };
 
-// Copy node_modules from the host into the worktree before each sandbox
-// starts. Avoids a full npm install from scratch; the hook above handles
-// platform-specific binaries and any packages added since the last copy.
-const copyToWorktree = ["node_modules"];
+// Nothing to copy from host: .venv is platform-specific (Windows host's venv
+// won't run in the Linux sandbox). uv sync installs fresh in the sandbox each run.
+const copyToWorktree: string[] = [];
 
 // ---------------------------------------------------------------------------
 // Main loop
@@ -72,8 +72,8 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     // One iteration is enough: the planner just needs to read and reason,
     // not write code. (Structured output requires maxIterations: 1.)
     maxIterations: 1,
-    // Opus for planning: dependency analysis benefits from deeper reasoning.
-    agent: sandcastle.claudeCode("claude-opus-4-8"),
+    // glm-5.2 for planning: dependency analysis benefits from deeper reasoning.
+    agent: sandcastle.claudeCode("glm-5.2"),
     promptFile: "./.sandcastle/plan-prompt.md",
     // Extract and validate the <plan> JSON into a typed object. Throws
     // StructuredOutputError if the tag is missing, the JSON is malformed, or
@@ -116,8 +116,8 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         name: "implementer",
         // Give each agent plenty of room to implement and iterate on tests.
         maxIterations: 100,
-        // Sonnet for execution: fast and capable enough for typical issue work.
-        agent: sandcastle.claudeCode("claude-opus-4-8"),
+        // kimi-k2.7-code for execution: fast and capable enough for typical issue work.
+        agent: sandcastle.claudeCode("kimi-k2.7-code"),
         promptFile: "./.sandcastle/implement-prompt.md",
         // Prompt arguments substitute {{TASK_ID}}, {{ISSUE_TITLE}},
         // and {{BRANCH}} placeholders in implement-prompt.md before the
@@ -187,8 +187,8 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     sandbox: docker(),
     name: "merger",
     maxIterations: 1,
-    // Sonnet is sufficient for merge conflict resolution.
-    agent: sandcastle.claudeCode("claude-opus-4-8"),
+    // kimi-k2.7-code is sufficient for merge conflict resolution.
+    agent: sandcastle.claudeCode("kimi-k2.7-code"),
     promptFile: "./.sandcastle/merge-prompt.md",
     promptArgs: {
       // A markdown list of branch names, one per line.

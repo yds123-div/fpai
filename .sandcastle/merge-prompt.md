@@ -8,10 +8,13 @@ For each branch:
 
 1. Run `git merge <branch> --no-edit`
 2. If there are merge conflicts, resolve them intelligently by reading both sides and choosing the correct resolution
-3. After resolving conflicts, run `npm run typecheck` and `npm run test` to verify everything works
+3. After resolving conflicts, run backend tests (skip integration tests that need MySQL/Redis/MinIO):
+   ```bash
+   cd backend && uv run pytest -m "not integration"
+   ```
 4. If tests fail, fix the issues before proceeding to the next branch
 
-After all branches are merged, make a single commit summarizing the merge.
+After all branches are merged, make a single commit summarizing the merge (conventional commits in Chinese, e.g. `merge: 合并 sandcastle 分支 ...`).
 
 # CLOSE ISSUES
 
