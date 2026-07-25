@@ -29,7 +29,7 @@ from agentscope.message import ToolResultState
 from agentscope.middleware import MiddlewareBase
 from agentscope.tool import ToolResponse
 
-from pkg.fund_formatter import build_compare_output, build_single_output
+from pkg.fund_formatter import build_compare_output, build_single_output, extract_funds
 
 OutputMode = Literal["single", "compare"]
 
@@ -40,27 +40,6 @@ class CapturedToolResult:
 
     tool_name: str
     payload: Any  # 工具返回值（已解析的 dict / str / 其它）
-
-
-def _funds_in(result: Any) -> list[dict[str, Any]]:
-    """从取数工具结果中提取 funds 列表（镜像 ``fund_formatter._extract_payload`` +
-    ``_extract_funds`` 的提取逻辑，避免耦合私有函数）。
-
-    支持两种包装：``{"payload": {"ok": ..., "funds": [...]}}`` 与
-    ``{"ok": ..., "funds": [...]}``。
-    """
-    if not isinstance(result, dict):
-        return []
-    payload = result.get("payload")
-    if not isinstance(payload, dict):
-        # 无 payload 包装：自身即 payload（带 ok 标记）
-        payload = result if result.get("ok") is not None else None
-    if not isinstance(payload, dict):
-        return []
-    funds = payload.get("funds")
-    if not isinstance(funds, list):
-        return []
-    return [f for f in funds if isinstance(f, dict)]
 
 
 def select_output_mode(captured: list[CapturedToolResult]) -> OutputMode:
@@ -75,7 +54,7 @@ def select_output_mode(captured: list[CapturedToolResult]) -> OutputMode:
     取数形状以最宽者为准（对比优先），与旧 ``ProductCompareAgent`` 语义一致。
     """
     for cap in captured:
-        if cap.tool_name == "query_fund_detail" and len(_funds_in(cap.payload)) >= 2:
+        if cap.tool_name == "query_fund_detail" and len(extract_funds(cap.payload)) >= 2:
             return "compare"
     return "single"
 
@@ -114,12 +93,13 @@ def build_structured_output(
 # ---------------------------------------------------------------------------
 # ToolResponse payload 提取 + on_acting 中间件
 # ---------------------------------------------------------------------------
-def _extract_payload(content: Any) -> Any:
-    """从 ``ToolResponse.content`` 提取可解析 payload。
+def _parse_tool_response_content(content: Any) -> Any:
+    """从 ``ToolResponse.content`` 解析出可用的 payload。
 
-    ``content`` 正常是 ``list[TextBlock | DataBlock]``（``FunctionTool`` 经
-    ``_convert_func_result_to_chunk`` 把 str/dict 包成 ``TextBlock``）；防御性
-    兼容 str。拼成文本后尝试 ``json.loads``，非 JSON 则原样返回文本。
+    与 ``fund_formatter._extract_payload``（从 dict 包装取 payload dict）语义不同：
+    本函数把 ``ToolResponse.content``（``list[TextBlock]``，``FunctionTool`` 经
+    ``_convert_func_result_to_chunk`` 把 str/dict 包成 ``TextBlock``）拼成文本后
+    ``json.loads``；防御性兼容 str。非 JSON 则原样返回文本。
     """
     if isinstance(content, str):
         text = content
@@ -165,7 +145,7 @@ class StructuredOutputsCollector(MiddlewareBase):
                 isinstance(item, ToolResponse)
                 and item.state == ToolResultState.SUCCESS
             ):
-                payload = _extract_payload(item.content)
+                payload = _parse_tool_response_content(item.content)
                 self._captured.append(CapturedToolResult(name, payload))
 
     @property

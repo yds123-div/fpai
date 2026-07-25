@@ -175,6 +175,18 @@ def _extract_funds(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
+def extract_funds(supplier_data: Any) -> list[dict[str, Any]]:
+    """从 supplier_data 提取基金列表（公共 helper，供 collector 等复用）。
+
+    统一 payload 形状的提取入口（``_extract_payload`` + ``_extract_funds``），
+    避免调用方各自镜像这套逻辑（Duplicated Code -> Shotgun Surgery）。
+    """
+    payload = _extract_payload(supplier_data)
+    if payload is None:
+        return []
+    return _extract_funds(payload)
+
+
 # ---------------------------------------------------------------------------
 # 卡片格式化
 # ---------------------------------------------------------------------------
