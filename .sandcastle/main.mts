@@ -42,7 +42,7 @@ const MAX_ITERATIONS = 10;
 // uv sync installs backend Python deps (uv manages Python 3.12 itself).
 // --all-extras pulls dev (pytest) + agent (agentscope) optional deps.
 const hooks = {
-  sandbox: { onSandboxReady: [{ command: "cd backend && uv sync --all-extras" }] },
+  sandbox: { onSandboxReady: [{ command: "cd backend && uv sync --all-extras --python 3.12" }] },
 };
 
 // Nothing to copy from host: .venv is platform-specific (Windows host's venv
