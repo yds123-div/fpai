@@ -15,4 +15,9 @@ T4（GatewayChatModel）、T5（取数 Toolkit + ALLOW 权限规则）三块产�
 - ``audit_middleware``（T7 #25，栅栏 #4）：``AuditMiddleware`` 把 agent 事件流桥接到
   ``audit.append_event``（两层事件 tool_call / reply_outcome + model_call_error），
   不动 audit 持久化契约；``answer_id`` 经 contextvars 线程化。
+- ``shape_adapter``（T8 #26，栅栏 #6）：``ShapeAdapter`` 把 ``reply_stream`` 事件流
+  适配为既有 ``progress_callback`` / ``stream_callback`` 契约（保形，不改前端 SSE）--
+  5 核心阶段全命中 + token 分片（首 token 先发 ``model_first_token``）+ ``ihad`` 透传/剥离
+  + ``reset_tools`` 噪音过滤 + 双 provider（OpenAI 兼容 / DashScope）保形。
+  主 seam ``run_chat_turn_async`` 接线在 T10。
 """
