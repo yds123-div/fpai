@@ -18,13 +18,19 @@ import asyncio
 import json
 import os
 from dataclasses import replace
-from typing import Any, Literal
+from typing import Any
 
 from pkg.logger import get_logger
 
 logger = get_logger(__name__)
 
-IntentCategory = Literal["product_query", "product_interpret", "product_compare", "other"]
+# 栅栏 #3 启发式分类（_heuristic_classify / IntentCategory）已改造搬迁至
+# ``agents.native_agent.heuristic_fallback``（存活栅栏：旧框架 T10 删除后仍须存活）。
+# 此处 import 保持单一权威源、零行为变更（迁移期借用，T10 切换 PR 删本文件）。
+from agents.native_agent.heuristic_fallback import (
+    IntentCategory,
+    heuristic_classify as _heuristic_classify,
+)
 
 # 业务 Agent 拆分到独立模块，避免本文件过长
 from agents.fund_agent.product_query.agent import ProductQueryAgent
@@ -213,70 +219,6 @@ def _rewrite_task_question_with_codes(question: str, codes: list[str], task_type
     if task_type == "product_compare" and len(codes) >= 2:
         return f"{q}（基金代码：{'、'.join(codes[:5])}）"
     return f"{q}（基金代码：{codes[0]}）"
-
-
-def _heuristic_classify(text: str) -> IntentCategory:
-    """轻量启发式分类：保证在 LLM 不可用时也能工作。"""
-    t = (text or "").strip()
-    if not t:
-        return "other"
-    # 提取 6 位基金代码数量（用于判断“对比/解析”场景）
-    import re
-
-    codes = re.findall(r"(?<!\d)\d{6}(?!\d)", t)
-    uniq_codes = list(dict.fromkeys(codes))
-
-    # 产品对比：显式“对比/比较”或出现多只基金代码
-    if any(k in t for k in ("对比", "比较", "哪个好", "差异", "PK", "pk")) or len(uniq_codes) >= 2:
-        return "product_compare"
-
-    # 产品查询：榜单/筛选/推荐/“哪些”类问题（常见：近期收益高、风险低）
-    query_triggers = (
-        "有哪些",
-        "哪些",
-        "推荐",
-        "排行",
-        "排名",
-        "榜",
-        "top",
-        "TOP",
-        "筛选",
-        "找",
-        "选",
-        "收益率高",
-        "涨幅",
-        "近期",
-        "最近",
-        "近一周",
-        "近1周",
-        "近一月",
-        "近1月",
-        "近三月",
-        "近3月",
-        "近半年",
-        "近6月",
-        "近一年",
-        "近1年",
-        "今年来",
-        "成立来",
-        "稳健",
-        "低风险",
-    )
-    if any(k in t for k in query_triggers):
-        # 若是“单只基金解析”更像 interpret（见下方）
-        if len(uniq_codes) == 0:
-            return "product_query"
-
-    # 产品解析：单只基金/产品“怎么样/分析/解读/适不适合/风险点”
-    interpret_triggers = ("解析", "解读", "分析", "怎么样", "怎么看", "要点", "风险", "适合", "条款", "能买吗", "值不值得")
-    if any(k in t for k in interpret_triggers) or (len(uniq_codes) == 1 and any(k in t for k in ("风险", "收益", "回撤", "波动", "稳健"))):
-        return "product_interpret"
-
-    # 兜底：包含“基金/理财/产品”关键词但未命中时，优先认为是产品查询
-    if any(k in t for k in ("基金", "理财", "产品", "收益率", "净值")):
-        return "product_query"
-    # fallback
-    return "other"
 
 
 def _is_simple_planning_fast_path_candidate(text: str, codes: list[str]) -> bool:
