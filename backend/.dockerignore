@@ -1,0 +1,20 @@
+# 敏感/本地开发
+.env
+.env.*
+.venv
+venv
+
+# Python 缓存与产物
+__pycache__/
+*.py[cod]
+
+# 日志
+logs/
+*.log
+
+# 测试与额外内容（不影响镜像运行）
+tests/
+
+# 可选：如果你有本地构建产物，也可排除
+dist/
+build/

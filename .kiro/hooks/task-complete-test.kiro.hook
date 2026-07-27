@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "name": "任务完成后运行测试",
+  "description": "任务完成后自动运行相关测试，确保代码质量",
+  "version": "1",
+  "when": {
+    "type": "postTaskExecution"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "任务已完成。请运行相关测试验证实现：1) 运行单元测试 2) 检查测试覆盖率 3) 如有失败，分析原因并修复。使用 spec: run-tests 来执行。"
+  }
+}

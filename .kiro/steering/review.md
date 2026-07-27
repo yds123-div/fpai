@@ -1,0 +1,23 @@
+---
+inclusion: manual
+---
+
+# 评审规则
+
+## 评审维度
+
+- **需求对齐**：实现是否覆盖 PRD/User Story（参考 .cursor/memory/prd.md、.cursor/memory/tasks.md）
+- **架构一致**：是否违反 .cursor/memory/architecture.md、.cursor/memory/technical_design.md、.cursor/memory/decisions.md
+- **代码质量**：符合 `.cursor/rules/coding-standards.mdc` 与对应的 engineering skill（如 `.cursor/skills/engineering/backend-engineer.md`）
+- **测试**：关键逻辑有测试，无不该有的依赖或 mock
+- **安全与运维**：无敏感信息泄露，错误与日志可观测
+
+## 与 Skills 配合
+
+- 质量与测试 → `.cursor/skills/quality/test-engineer.md`、`qa-reviewer.md`
+- 安全 → `.cursor/skills/quality/security-reviewer.md`
+
+## 输出
+
+- 通过：简要确认
+- 不通过：列出问题项、文件/行号（如适用）、修改建议

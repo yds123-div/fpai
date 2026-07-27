@@ -1,0 +1,918 @@
+{
+  "D:\\hjjk\\fpai\\standalone_fetch_test.py": {
+    "mtime": 1777267887.8960693,
+    "hash": "3443a1b187b778a0f4a4c3741fc536af"
+  },
+  "D:\\hjjk\\fpai\\backend\\__init__.py": {
+    "mtime": 1775015670.3424609,
+    "hash": "716a7a852c99e210e1dd8fd52cd6f1d5"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\agent_store.py": {
+    "mtime": 1776421657.8679848,
+    "hash": "be22983499773cf5ebaf52993b4b580d"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\fund_agent_framework.py": {
+    "mtime": 1777363270.230873,
+    "hash": "e1c177bdc95b0bcba6081b50d80205c1"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\model_config.py": {
+    "mtime": 1775187793.2685726,
+    "hash": "2b498055e5b8452a3bd3fa9748be73ba"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\registry.py": {
+    "mtime": 1776155869.341025,
+    "hash": "0b1f582c92d8e0fe8943dd97288e09aa"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\skills_store.py": {
+    "mtime": 1775187793.2801921,
+    "hash": "e58ad20fcb1e9511458564ea234383df"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\__init__.py": {
+    "mtime": 1775015670.3434618,
+    "hash": "9b44b46daeee2ae875df50d292ee1e7f"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\faq\\agent.py": {
+    "mtime": 1775015670.3444607,
+    "hash": "4df4020f503bba44c571a831bda1cae3"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\faq\\retrieval.py": {
+    "mtime": 1776743891.9413817,
+    "hash": "58a76e3697ddd358d521bf6be1baf6cc"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\faq\\store.py": {
+    "mtime": 1775015670.3444607,
+    "hash": "0d31bc97e07a38e5752bb99fcf4f7341"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\faq\\sync.py": {
+    "mtime": 1775015670.3454616,
+    "hash": "6bccd6746add6a8b0382f32e404d193b"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\faq\\__init__.py": {
+    "mtime": 1775015670.3434618,
+    "hash": "f7d751ad4678b7edec0ace6c5af249f6"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\fund_agent\\runtime.py": {
+    "mtime": 1777015741.4368732,
+    "hash": "8e7655df1a044c488f3a7bf7af7034a2"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\fund_agent\\__init__.py": {
+    "mtime": 1775187793.2625692,
+    "hash": "65bd6777e0395bcc464b35cb1947c0b7"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\fund_agent\\other\\agent.py": {
+    "mtime": 1775187793.2625692,
+    "hash": "8f6c1aadb1e9a8c8c36fff98e71b1e90"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\fund_agent\\product_compare\\agent.py": {
+    "mtime": 1776853504.440814,
+    "hash": "44b23f5067fa0c8c59b6d540da900586"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\fund_agent\\product_interpret\\agent.py": {
+    "mtime": 1777015741.4358728,
+    "hash": "70c6d77ab743f98b039ac4f8b1fc60a5"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\fund_agent\\product_query\\agent.py": {
+    "mtime": 1776853504.5006926,
+    "hash": "8af8b8cc81519deebefcc29e8f803939"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\fund_agent\\product_recommend\\agent.py": {
+    "mtime": 1775187793.266577,
+    "hash": "d1094ea26b08503caf06627d26d5bf15"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\fund_agent\\product_recommend\\__init__.py": {
+    "mtime": 1775187793.266577,
+    "hash": "e7e41729270bc7c7e90cfb5a34a98a11"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\product_list\\agent.py": {
+    "mtime": 1775015670.3524647,
+    "hash": "9271aa7a6e5fa59331e0a4ec1328f152"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\product_list\\__init__.py": {
+    "mtime": 1775015670.351462,
+    "hash": "3c17f7eb3612ad0ebb201793d8c78c21"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\rag\\agent.py": {
+    "mtime": 1775015670.354465,
+    "hash": "ba2825d35b21d0bffaea5b00e6f99ad4"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\rag\\__init__.py": {
+    "mtime": 1775015670.354465,
+    "hash": "dbee5ac4da4a80a4212d0a9952e74680"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\report_generate\\agent.py": {
+    "mtime": 1775015670.356467,
+    "hash": "dc743169ca4d0f1efd0fadd9a863571b"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\report_generate\\__init__.py": {
+    "mtime": 1775015670.3554614,
+    "hash": "2ce5ab2def9dd05ec0b1ad902b7bd466"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\routing\\implicit.py": {
+    "mtime": 1776155869.342025,
+    "hash": "5ab219e0328d5ea5e3e55a22ee28155d"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\routing\\__init__.py": {
+    "mtime": 1776155869.342025,
+    "hash": "89a5854dda8646f336f772bbb6f52b38"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\skills\\fund_name_to_code\\runtime.py": {
+    "mtime": 1775187793.2715666,
+    "hash": "7ed7e9f8666fb5d93a6aa9e8735a1cf9"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\skills\\fund_name_to_code\\__init__.py": {
+    "mtime": 1775187793.2705696,
+    "hash": "aaf9e4d388bee598ebb70633a7798092"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\skills\\product_compare\\runtime.py": {
+    "mtime": 1775793582.0951812,
+    "hash": "67f8a8b6347a6df74ac6eeda3e807e5e"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\skills\\product_compare\\__init__.py": {
+    "mtime": 1775187793.2735772,
+    "hash": "c0a560327d3ebfbb9742b0acc2734f52"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\skills\\product_interpret\\runtime.py": {
+    "mtime": 1777267887.9165642,
+    "hash": "d06e766ce5e705ac50a4767fe0a19f91"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\skills\\product_interpret\\__init__.py": {
+    "mtime": 1775187793.2759035,
+    "hash": "c0a560327d3ebfbb9742b0acc2734f52"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\skills\\product_query\\runtime.py": {
+    "mtime": 1775187793.2781909,
+    "hash": "520f672f014bf0aa805e4734805c1748"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\skills\\product_query\\__init__.py": {
+    "mtime": 1775187793.2771666,
+    "hash": "bb5ecacf531a32750ef5e8f35981cf29"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\skills\\product_recommend\\runtime.py": {
+    "mtime": 1775187793.2801921,
+    "hash": "5c7f78f22c310eb402557a595922e9bf"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\skills\\product_recommend\\__init__.py": {
+    "mtime": 1775187793.2791977,
+    "hash": "2021a59cff09490fc5d3027082f8dcf6"
+  },
+  "D:\\hjjk\\fpai\\backend\\api\\deps.py": {
+    "mtime": 1775184982.6077585,
+    "hash": "54d34f61b72f2e51ff5a0751013e5b28"
+  },
+  "D:\\hjjk\\fpai\\backend\\api\\main.py": {
+    "mtime": 1776417859.4634993,
+    "hash": "427f49de8935ce75424e8d6bcf1828fb"
+  },
+  "D:\\hjjk\\fpai\\backend\\api\\middleware.py": {
+    "mtime": 1776181447.7665186,
+    "hash": "787931e5abb9db737582c8389798490c"
+  },
+  "D:\\hjjk\\fpai\\backend\\api\\__init__.py": {
+    "mtime": 1775015670.3584666,
+    "hash": "32d25f937ebf26c11cf5154a87f6f6ee"
+  },
+  "D:\\hjjk\\fpai\\backend\\api\\routes\\agents.py": {
+    "mtime": 1775187793.2831933,
+    "hash": "60bd040e2114fc966b89cc4b31791a0b"
+  },
+  "D:\\hjjk\\fpai\\backend\\api\\routes\\auth.py": {
+    "mtime": 1775187793.284191,
+    "hash": "30c99816c6e51d71bff69d58858bf506"
+  },
+  "D:\\hjjk\\fpai\\backend\\api\\routes\\chat.py": {
+    "mtime": 1777363270.2292044,
+    "hash": "7190e22829bf422aefb397df7fa42707"
+  },
+  "D:\\hjjk\\fpai\\backend\\api\\routes\\compare_recommend_report.py": {
+    "mtime": 1778477848.6258264,
+    "hash": "52c5e5a6132d2dbe34ecb4468008b303"
+  },
+  "D:\\hjjk\\fpai\\backend\\api\\routes\\config.py": {
+    "mtime": 1775198774.8869152,
+    "hash": "3a2da566cfd912bd0976347f3f8777d2"
+  },
+  "D:\\hjjk\\fpai\\backend\\api\\routes\\documents.py": {
+    "mtime": 1775015670.3624668,
+    "hash": "472bea2eb4901c300bf7e060130797da"
+  },
+  "D:\\hjjk\\fpai\\backend\\api\\routes\\evidence_feedback_products_sessions.py": {
+    "mtime": 1777267887.8950574,
+    "hash": "8d1535a666d33631329bcc9b4f2d9899"
+  },
+  "D:\\hjjk\\fpai\\backend\\api\\routes\\funds.py": {
+    "mtime": 1776417859.4634993,
+    "hash": "d09c09190bb8e320243f0b3a1f01b329"
+  },
+  "D:\\hjjk\\fpai\\backend\\api\\routes\\fund_ratings.py": {
+    "mtime": 1776417859.4634993,
+    "hash": "8f5a0b4f949be817aff206def1896814"
+  },
+  "D:\\hjjk\\fpai\\backend\\api\\routes\\knowledge.py": {
+    "mtime": 1778477831.8609183,
+    "hash": "7f4cd0bb6833691936fbde5475d501bf"
+  },
+  "D:\\hjjk\\fpai\\backend\\api\\routes\\models.py": {
+    "mtime": 1775187793.2877047,
+    "hash": "b987ffc7c507ef190421f96fc55bf850"
+  },
+  "D:\\hjjk\\fpai\\backend\\api\\routes\\rbac.py": {
+    "mtime": 1775187793.2887113,
+    "hash": "fd32cf9bdaeb157f7c9949203cf477e3"
+  },
+  "D:\\hjjk\\fpai\\backend\\api\\routes\\skills.py": {
+    "mtime": 1775187793.2887113,
+    "hash": "d2fe2b6f386736afa7a904bc9bb8c305"
+  },
+  "D:\\hjjk\\fpai\\backend\\api\\routes\\users.py": {
+    "mtime": 1775015670.3634677,
+    "hash": "b2db539517cafe9010030fd6e78503d4"
+  },
+  "D:\\hjjk\\fpai\\backend\\api\\routes\\__init__.py": {
+    "mtime": 1775015670.3604667,
+    "hash": "448dd68ee3863aad2a5f41b1459af9fe"
+  },
+  "D:\\hjjk\\fpai\\backend\\audit\\store.py": {
+    "mtime": 1775015670.3644707,
+    "hash": "4a0fe81ee1492e620dc70e169e95a039"
+  },
+  "D:\\hjjk\\fpai\\backend\\audit\\types.py": {
+    "mtime": 1775015670.3658354,
+    "hash": "c462e3b4fff6d11dbf51827317e36772"
+  },
+  "D:\\hjjk\\fpai\\backend\\audit\\__init__.py": {
+    "mtime": 1775015670.3644707,
+    "hash": "d3b7b636f2fcdfce7f9ef84a3a2c5f23"
+  },
+  "D:\\hjjk\\fpai\\backend\\auth\\service.py": {
+    "mtime": 1776737395.2017336,
+    "hash": "4ba261ee4914e3956dc44cfb00c1736d"
+  },
+  "D:\\hjjk\\fpai\\backend\\auth\\__init__.py": {
+    "mtime": 1775015670.3658354,
+    "hash": "21e2b94e6a61471b10de67364b3474c0"
+  },
+  "D:\\hjjk\\fpai\\backend\\compliance\\config.py": {
+    "mtime": 1775015670.367936,
+    "hash": "dbd26f5cf1d8b605e68a095b3dacabe7"
+  },
+  "D:\\hjjk\\fpai\\backend\\compliance\\service.py": {
+    "mtime": 1776737395.207827,
+    "hash": "7d04da9d90d0f78a10cafe8165bf3d05"
+  },
+  "D:\\hjjk\\fpai\\backend\\compliance\\types.py": {
+    "mtime": 1775015670.3689368,
+    "hash": "bb169a75e3c3d726126a85f25e8bc97b"
+  },
+  "D:\\hjjk\\fpai\\backend\\compliance\\__init__.py": {
+    "mtime": 1775015670.367936,
+    "hash": "b0e97c9fa85232e13f8d5bb43a6854db"
+  },
+  "D:\\hjjk\\fpai\\backend\\config\\akshare_config.py": {
+    "mtime": 1776046909.7861311,
+    "hash": "4dba9f35d0584a5225e502a8bab5b9e6"
+  },
+  "D:\\hjjk\\fpai\\backend\\config\\logging_config.py": {
+    "mtime": 1776062687.2232802,
+    "hash": "190bcf6316ffa5210f0b9f0328b4a212"
+  },
+  "D:\\hjjk\\fpai\\backend\\config\\monitoring_config.py": {
+    "mtime": 1776047602.292004,
+    "hash": "fb25cc453e097f790954ae19697d1695"
+  },
+  "D:\\hjjk\\fpai\\backend\\config\\store.py": {
+    "mtime": 1775188472.211136,
+    "hash": "70d9c63dd34f42248a101684098b002b"
+  },
+  "D:\\hjjk\\fpai\\backend\\config\\warnings_filter.py": {
+    "mtime": 1776062681.4124148,
+    "hash": "21c9fa518dd197b34f73e87626467277"
+  },
+  "D:\\hjjk\\fpai\\backend\\config\\__init__.py": {
+    "mtime": 1775015670.3699367,
+    "hash": "8e512ffa683226776aae5ecb83f81a5a"
+  },
+  "D:\\hjjk\\fpai\\backend\\data_access\\domain_model.py": {
+    "mtime": 1775015670.3734455,
+    "hash": "ba479591150eb80b85067daca2117498"
+  },
+  "D:\\hjjk\\fpai\\backend\\data_access\\model_registry.py": {
+    "mtime": 1775015670.3734455,
+    "hash": "2a7be1bd625d03c4fbd6f98207bfbefc"
+  },
+  "D:\\hjjk\\fpai\\backend\\data_access\\unified.py": {
+    "mtime": 1775116009.317623,
+    "hash": "882251ba1cfbd65114effa87127e4cc5"
+  },
+  "D:\\hjjk\\fpai\\backend\\data_access\\_circuit.py": {
+    "mtime": 1775015670.3714428,
+    "hash": "1faa88b46191c96aec96695f270578cd"
+  },
+  "D:\\hjjk\\fpai\\backend\\data_access\\__init__.py": {
+    "mtime": 1775015670.3709369,
+    "hash": "e5b4ca2478617265a6e21099e52e2d13"
+  },
+  "D:\\hjjk\\fpai\\backend\\data_access\\adapters\\config_loader.py": {
+    "mtime": 1775015670.3724468,
+    "hash": "1837d665cb4e8886153b587b653c8b18"
+  },
+  "D:\\hjjk\\fpai\\backend\\data_access\\adapters\\__init__.py": {
+    "mtime": 1775015670.3724468,
+    "hash": "dec1904aec5a784053d66cf9771e41b3"
+  },
+  "D:\\hjjk\\fpai\\backend\\feedback\\store.py": {
+    "mtime": 1775015670.374448,
+    "hash": "bd639ed1cb19cbb96f3ed2fc1a7dcaa2"
+  },
+  "D:\\hjjk\\fpai\\backend\\feedback\\types.py": {
+    "mtime": 1775015670.3759556,
+    "hash": "8e9a6e22f218993564dba59b200cafca"
+  },
+  "D:\\hjjk\\fpai\\backend\\feedback\\__init__.py": {
+    "mtime": 1775015670.374448,
+    "hash": "8eabd3c21e3b5d191372f9060f31145a"
+  },
+  "D:\\hjjk\\fpai\\backend\\ingestion\\chunking.py": {
+    "mtime": 1775015670.376964,
+    "hash": "e72162014fde8638fd8d6b7576cd1905"
+  },
+  "D:\\hjjk\\fpai\\backend\\ingestion\\processor.py": {
+    "mtime": 1775015670.3779626,
+    "hash": "ca5ce90d30e33e8a3f13a50453cd8993"
+  },
+  "D:\\hjjk\\fpai\\backend\\ingestion\\queue.py": {
+    "mtime": 1775015670.3779626,
+    "hash": "ca62ba6f0e2e7409f7a15f7dcc5d29d7"
+  },
+  "D:\\hjjk\\fpai\\backend\\ingestion\\submit.py": {
+    "mtime": 1775015670.3789656,
+    "hash": "a71ecb085ddff4ace8e317ec7dc24cd6"
+  },
+  "D:\\hjjk\\fpai\\backend\\ingestion\\__init__.py": {
+    "mtime": 1775015670.376964,
+    "hash": "88498faec67782358bd5f479193f9358"
+  },
+  "D:\\hjjk\\fpai\\backend\\knowledge\\store.py": {
+    "mtime": 1777363270.230873,
+    "hash": "20b838a2fa3359c56b624043f58c4d41"
+  },
+  "D:\\hjjk\\fpai\\backend\\knowledge\\sync.py": {
+    "mtime": 1775198697.7155023,
+    "hash": "bb9237edd73b7fd3a0a6adf5a1e868a6"
+  },
+  "D:\\hjjk\\fpai\\backend\\models\\store.py": {
+    "mtime": 1775187793.2939823,
+    "hash": "e4b3790745ffe35db8e0a111992601de"
+  },
+  "D:\\hjjk\\fpai\\backend\\models\\__init__.py": {
+    "mtime": 1775187793.2939823,
+    "hash": "84fb0f3b9944e3981c4a6093ea0ea9a0"
+  },
+  "D:\\hjjk\\fpai\\backend\\model_gateway\\config.py": {
+    "mtime": 1775015670.3819673,
+    "hash": "42e451110dc7e4effbb9bece35907b32"
+  },
+  "D:\\hjjk\\fpai\\backend\\model_gateway\\embedding.py": {
+    "mtime": 1775015670.3819673,
+    "hash": "63061ce2fc567db9ec9844e3c8e081fc"
+  },
+  "D:\\hjjk\\fpai\\backend\\model_gateway\\llm.py": {
+    "mtime": 1777019705.5947776,
+    "hash": "f2b82de1faadf662d94bce941701fcfc"
+  },
+  "D:\\hjjk\\fpai\\backend\\model_gateway\\reranker.py": {
+    "mtime": 1775015670.3829644,
+    "hash": "c4c65e2290e2558f744dbafd37bb8a94"
+  },
+  "D:\\hjjk\\fpai\\backend\\model_gateway\\_circuit.py": {
+    "mtime": 1775015670.3809648,
+    "hash": "38b985c7346a07f8f87ddefb5c17c7a5"
+  },
+  "D:\\hjjk\\fpai\\backend\\model_gateway\\__init__.py": {
+    "mtime": 1775015670.3809648,
+    "hash": "d3da9e47a6ebd3cfae20a7967aca4817"
+  },
+  "D:\\hjjk\\fpai\\backend\\orchestrator\\run.py": {
+    "mtime": 1777363270.230873,
+    "hash": "5aafaca1fa6d695a2e24f983f1b9bfa9"
+  },
+  "D:\\hjjk\\fpai\\backend\\orchestrator\\session.py": {
+    "mtime": 1777267887.9165642,
+    "hash": "b7ba7600f8ab72274ed1315dc9135473"
+  },
+  "D:\\hjjk\\fpai\\backend\\orchestrator\\__init__.py": {
+    "mtime": 1775187793.2949748,
+    "hash": "a6663f2b668bfe09e8e0902ccb182213"
+  },
+  "D:\\hjjk\\fpai\\backend\\parsing\\errors.py": {
+    "mtime": 1775015670.3869648,
+    "hash": "8abdff5262a2340d82aef277de5b615d"
+  },
+  "D:\\hjjk\\fpai\\backend\\parsing\\mineru_adapter.py": {
+    "mtime": 1775015670.3879635,
+    "hash": "b9dc1278468bea0c116c6e573e9813ca"
+  },
+  "D:\\hjjk\\fpai\\backend\\parsing\\service.py": {
+    "mtime": 1775015670.3879635,
+    "hash": "1b7e5d0040b736c8789ae8350e4e5e48"
+  },
+  "D:\\hjjk\\fpai\\backend\\parsing\\types.py": {
+    "mtime": 1775015670.388964,
+    "hash": "15f34564cde780334660723ef72b2623"
+  },
+  "D:\\hjjk\\fpai\\backend\\parsing\\__init__.py": {
+    "mtime": 1775015670.3869648,
+    "hash": "77dab9915301a51a8217987ebd296064"
+  },
+  "D:\\hjjk\\fpai\\backend\\pkg\\akshare_client.py": {
+    "mtime": 1776743891.9397786,
+    "hash": "cdbfe1049e4cd10bec7647fee9db8efa"
+  },
+  "D:\\hjjk\\fpai\\backend\\pkg\\codes.py": {
+    "mtime": 1775015670.3899639,
+    "hash": "bbbd25a224d482b5cfb1e049e33820c6"
+  },
+  "D:\\hjjk\\fpai\\backend\\pkg\\fund_formatter.py": {
+    "mtime": 1776753440.161394,
+    "hash": "19d13365dfa10347c3f7c205009129e1"
+  },
+  "D:\\hjjk\\fpai\\backend\\pkg\\fund_types.py": {
+    "mtime": 1776163111.842584,
+    "hash": "fc212b4b109a42229d5a95d122c90cb3"
+  },
+  "D:\\hjjk\\fpai\\backend\\pkg\\llm_monitor.py": {
+    "mtime": 1775793672.4028716,
+    "hash": "3df240337e46de02452bb18829200446"
+  },
+  "D:\\hjjk\\fpai\\backend\\pkg\\logger.py": {
+    "mtime": 1775015670.3899639,
+    "hash": "53f1953abff6258f7f37492c85b42935"
+  },
+  "D:\\hjjk\\fpai\\backend\\pkg\\metrics.py": {
+    "mtime": 1776161851.1151793,
+    "hash": "5bf0ef8c01fe1b305f9fd6270e1a14df"
+  },
+  "D:\\hjjk\\fpai\\backend\\pkg\\milvus_client.py": {
+    "mtime": 1775015670.3909636,
+    "hash": "172299cc70c17568aad2ace4ed4c0546"
+  },
+  "D:\\hjjk\\fpai\\backend\\pkg\\minio_client.py": {
+    "mtime": 1775015670.3909636,
+    "hash": "10dd693bb0a25aa2cc262ec67a07fae0"
+  },
+  "D:\\hjjk\\fpai\\backend\\pkg\\mysql_client.py": {
+    "mtime": 1775015670.3919632,
+    "hash": "e4760a6f7003204c84327caf078d80ce"
+  },
+  "D:\\hjjk\\fpai\\backend\\pkg\\redis_client.py": {
+    "mtime": 1777363270.2269711,
+    "hash": "0a1ec1d8f8b92be89dacb5f14c8af8fa"
+  },
+  "D:\\hjjk\\fpai\\backend\\pkg\\redis_keys.py": {
+    "mtime": 1777363270.2269711,
+    "hash": "08d9ed91adf8de8196877b3ab30fdc9e"
+  },
+  "D:\\hjjk\\fpai\\backend\\pkg\\__init__.py": {
+    "mtime": 1775015670.388964,
+    "hash": "ead9cbee2dd432aefedd35d8609835f4"
+  },
+  "D:\\hjjk\\fpai\\backend\\products\\store.py": {
+    "mtime": 1775187793.2959785,
+    "hash": "44ae52b2762cbf43032d9fa2b6fef209"
+  },
+  "D:\\hjjk\\fpai\\backend\\rbac\\store.py": {
+    "mtime": 1775187793.2979808,
+    "hash": "835d1b911940adfa97bc95f3cecdc3ee"
+  },
+  "D:\\hjjk\\fpai\\backend\\retrieval\\service.py": {
+    "mtime": 1775015670.394964,
+    "hash": "1199c5de548b264fb0e15bdb23439dbe"
+  },
+  "D:\\hjjk\\fpai\\backend\\retrieval\\types.py": {
+    "mtime": 1775015670.394964,
+    "hash": "eedc4d842cb07a1976b6079993f49c29"
+  },
+  "D:\\hjjk\\fpai\\backend\\retrieval\\__init__.py": {
+    "mtime": 1775015670.3939633,
+    "hash": "6745ffc0e4aec77e5d49249b78216a98"
+  },
+  "D:\\hjjk\\fpai\\backend\\scripts\\reset_admin_password.py": {
+    "mtime": 1778469931.57207,
+    "hash": "35d6ba423ddd34ba0d6a4b76ec413ccd"
+  },
+  "D:\\hjjk\\fpai\\frontend\\vite.config.ts": {
+    "mtime": 1775015670.4414754,
+    "hash": "50df22f9d0877ef0f8839b4a6c35166e"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\App.vue": {
+    "mtime": 1775015670.4069636,
+    "hash": "7668b66e07d9986a3193237836849729"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\main.ts": {
+    "mtime": 1775015670.423963,
+    "hash": "46ad5cdb5ea280ead39f210776145213"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\markdown-it.d.ts": {
+    "mtime": 1775015670.423963,
+    "hash": "2f190c8e7e4cc1d458448e9604ca7263"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\vite-env.d.ts": {
+    "mtime": 1775015670.4389632,
+    "hash": "fe8f1f2d39338674f6531fd3d562e08b"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\api\\agents.ts": {
+    "mtime": 1775187793.306257,
+    "hash": "4d9ddde346282ec28dce2efad499ba7e"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\api\\auth.ts": {
+    "mtime": 1775015670.4079633,
+    "hash": "07b7223ae39e9956dba626ebcd0591bf"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\api\\chat.ts": {
+    "mtime": 1777363270.2321968,
+    "hash": "63574fcc8460f9c5c387dec58827f4dc"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\api\\compare.ts": {
+    "mtime": 1775187793.3072677,
+    "hash": "5a8a964be490a4637d175b620545e157"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\api\\config.ts": {
+    "mtime": 1775188655.076849,
+    "hash": "62bec41841a0d10583ea8d8cf2d9c3de"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\api\\evidence.ts": {
+    "mtime": 1775015670.4089642,
+    "hash": "7e5d22d075373db2b7edb4c9f59122bf"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\api\\feedback.ts": {
+    "mtime": 1775015670.409964,
+    "hash": "00f1480bc0ff52a66f9094724c928295"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\api\\funds.ts": {
+    "mtime": 1776743891.9397786,
+    "hash": "95e4cc2a670473b4c522be802ff054a5"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\api\\index.ts": {
+    "mtime": 1775187793.3085277,
+    "hash": "b0a5be9ca1817f1166054809ec3f1106"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\api\\knowledge.ts": {
+    "mtime": 1777363270.2252781,
+    "hash": "05c3c933c8ea132f5c1e1c6250465eff"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\api\\models.ts": {
+    "mtime": 1775187793.309538,
+    "hash": "cdac410124915c18e69d6cf2edcde3e9"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\api\\products.ts": {
+    "mtime": 1775187793.3105392,
+    "hash": "9c69d22f20af714d65a78ec6ab11a365"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\api\\rbac.ts": {
+    "mtime": 1775187793.3105392,
+    "hash": "c942b31d9c7501eb6062a054e9cc25c8"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\api\\recommend.ts": {
+    "mtime": 1775187793.3115375,
+    "hash": "41668d323c2baf14e9eb81ed93167fa9"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\api\\report.ts": {
+    "mtime": 1775015670.4119637,
+    "hash": "3878b19da7e83728d4892c0b23bdddc6"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\api\\skills.ts": {
+    "mtime": 1775187793.3115375,
+    "hash": "dca2e6ec0ec4cbac8777ada0bba509e8"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\api\\user.ts": {
+    "mtime": 1775187793.3125353,
+    "hash": "6b6d16383486aab0cb82a3546eb59e6a"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\components\\MenuItemRecursive.vue": {
+    "mtime": 1775015670.4219637,
+    "hash": "833dd8f229b3d9b3278b09f579551dd6"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\components\\chat\\SessionHistoryList.vue": {
+    "mtime": 1777268007.89565,
+    "hash": "2ca002970de6160d692d61dad96a918f"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\components\\fund\\ChartDebug.vue": {
+    "mtime": 1776139343.8219683,
+    "hash": "59bc45232af93a22bb282492954bb365"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\components\\fund\\ChartRenderer.vue": {
+    "mtime": 1776743891.970857,
+    "hash": "6d07a3ab229ac824977eade3eb5dbc95"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\components\\fund\\FundAnalysis.vue": {
+    "mtime": 1777440358.9360933,
+    "hash": "9844ce4d4e61aa62f749d080994376ed"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\components\\fund\\InfoCard.vue": {
+    "mtime": 1776417859.4784448,
+    "hash": "e1a677d555213baad49a5796e7ca0bf9"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\components\\fund\\InvestmentDecisionAssist.vue": {
+    "mtime": 1776743891.9594011,
+    "hash": "e63a44100d7aab2f76c7e4a8dbbc38a9"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\components\\fund\\PerformanceSummary.vue": {
+    "mtime": 1777440358.937713,
+    "hash": "70f84c9318d5413115c9f429a0c1052d"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\components\\fund\\TableSection.vue": {
+    "mtime": 1776163111.851754,
+    "hash": "32862585ff805b758715a965ac055699"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\components\\fund\\TextSection.vue": {
+    "mtime": 1776139343.82413,
+    "hash": "c09aafcbc326695b68b919f1b1fc7df1"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\components\\rm\\CustomerProfilePanel.vue": {
+    "mtime": 1777440359.026517,
+    "hash": "faf33c7ddc0d8a596f8c5f1018eb5ba4"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\components\\rm\\CustomerSelector.vue": {
+    "mtime": 1777440359.0276165,
+    "hash": "709ac95ab8e085102dd1a4adf7d7cb87"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\components\\rm\\TodoPanel.vue": {
+    "mtime": 1777440359.0285249,
+    "hash": "ebca975a4e3da52a6644ee0fd8b0e9cf"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\layouts\\AdminLayout.vue": {
+    "mtime": 1775187793.3135355,
+    "hash": "426643cd5ec11208972c1cbb7e54bbc0"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\layouts\\MainLayout.vue": {
+    "mtime": 1777440359.0308607,
+    "hash": "6a2619a44669879fbc0efe9c97581138"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\mocks\\rmCustomers.ts": {
+    "mtime": 1777440359.0329912,
+    "hash": "67b6ea59dfcd4f3ebbe8c7d1a1649c51"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\router\\index.ts": {
+    "mtime": 1777440359.033948,
+    "hash": "ae49ffaea5072daf5fd62d954f34e096"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\store\\theme.ts": {
+    "mtime": 1775015670.4259634,
+    "hash": "7ec3c3e08d629598bf31edbd53b49ee3"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\store\\user.ts": {
+    "mtime": 1775015670.4259634,
+    "hash": "bc8f7d0f9ff77639e0e8b39a673be919"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\types\\fundAnalysis.ts": {
+    "mtime": 1776753665.2928,
+    "hash": "54316a06488229cdb27622030847d981"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\types\\rm.ts": {
+    "mtime": 1777440359.0359514,
+    "hash": "a08add84c113c54e2ee1b85e3d33d308"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\utils\\crypto.ts": {
+    "mtime": 1775015670.4289668,
+    "hash": "201862dfad28abb18f1cb059f966c408"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\utils\\fundAnalysisParser.ts": {
+    "mtime": 1776754334.3523703,
+    "hash": "b0791eb564ea1b9c4a7e34abd22870e0"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\utils\\fundPresentation.ts": {
+    "mtime": 1777440358.9410934,
+    "hash": "9da31d651ec59bb77af2a0dd36f479fa"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\utils\\request.ts": {
+    "mtime": 1777015741.4431357,
+    "hash": "dbfc5d4bfbe3695b8cab8c2c8c677b06"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\utils\\rmTodoStorage.ts": {
+    "mtime": 1777440359.0359514,
+    "hash": "039922c8e00b1ac8a8f8b00def9cbdb5"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\utils\\storage.ts": {
+    "mtime": 1775015670.4299636,
+    "hash": "2b3b9cd0c617c7c3b7395d3669e6aaba"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\utils\\theme.ts": {
+    "mtime": 1775015670.4299636,
+    "hash": "5b0f8d7fc3784991141ffe2785447309"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\views\\admin\\agent\\index.vue": {
+    "mtime": 1775187793.3155355,
+    "hash": "ac324c1654eacaba502fc0f15e542ca0"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\views\\admin\\config\\index.vue": {
+    "mtime": 1775198729.7030356,
+    "hash": "49ab6a4062a918a33bdb4c73b8063b61"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\views\\admin\\knowledge\\index.vue": {
+    "mtime": 1777355835.5649781,
+    "hash": "13803e90eea4c5b164a3450c58367b1a"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\views\\admin\\model\\index.vue": {
+    "mtime": 1775187793.3175378,
+    "hash": "987af6c71d40a7e821d7f966f7a5e395"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\views\\admin\\skill\\index.vue": {
+    "mtime": 1775187793.3175378,
+    "hash": "cd0e0b519c7f0902608c2bf3b495bccb"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\views\\admin\\system\\menus\\index.vue": {
+    "mtime": 1775187793.3185363,
+    "hash": "e2c9ff5de6568b8b112e0fc12dc2b47d"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\views\\admin\\system\\roles\\index.vue": {
+    "mtime": 1775187793.319537,
+    "hash": "9b69ee1252e67b80a59b9a18af202d2c"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\views\\admin\\theme-settings\\index.vue": {
+    "mtime": 1775015670.4339633,
+    "hash": "d32638df99a89b1a2020296adc9abf71"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\views\\admin\\user\\index.vue": {
+    "mtime": 1775187793.3205354,
+    "hash": "058f099e80ba2a324c6277b1f2c2dbd6"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\views\\fpai\\ChatView.vue": {
+    "mtime": 1777363270.2269711,
+    "hash": "9bee1ae7fabc08fe44fe0596383fe6e7"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\views\\fpai\\CompareView.vue": {
+    "mtime": 1775187793.3230464,
+    "hash": "31db30ab6eb430a7aeb15bf54593a38e"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\views\\fpai\\EvidenceView.vue": {
+    "mtime": 1775015670.4359632,
+    "hash": "4528ac79a8f0178e9293f7b381efe7fc"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\views\\fpai\\FeedbackView.vue": {
+    "mtime": 1775015670.4359632,
+    "hash": "1bdc310a1240acb9414eef08933c9703"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\views\\fpai\\KnowledgeView.vue": {
+    "mtime": 1775187793.3230464,
+    "hash": "af07b423f8d07bc5d7e509d10d13e706"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\views\\fpai\\ProductsView.vue": {
+    "mtime": 1775187793.324055,
+    "hash": "51b1eba66585365762a4d6b1e790a8bf"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\views\\fpai\\RecommendView.vue": {
+    "mtime": 1775187793.3250527,
+    "hash": "14d11c0ae4f3e685dd5b0a59074789df"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\views\\fpai\\ReportView.vue": {
+    "mtime": 1775015670.437963,
+    "hash": "160e00267672c2552c988236456c2280"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\views\\fpai\\RmWorkspaceView.vue": {
+    "mtime": 1777440359.0384674,
+    "hash": "654b2d5ddfcb84ab8bdf9a9d7626ca6f"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\views\\home\\index.vue": {
+    "mtime": 1775015670.4389632,
+    "hash": "4ea2fe4c844e758c1fab0992e6e75dd6"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\views\\login\\index.vue": {
+    "mtime": 1775015670.4389632,
+    "hash": "4646d45e9928aa3f50c8b34c1e46b94b"
+  },
+  "D:\\hjjk\\fpai\\tools\\build_graphify_enhanced_html.py": {
+    "mtime": 1778494269.2397623,
+    "hash": "1e648279b60702d80a36e374e6d9df2e"
+  },
+  "D:\\hjjk\\fpai\\tools\\run_graphify_extract_and_viewer.py": {
+    "mtime": 1778494281.449564,
+    "hash": "c21477598ccf962a8a7fc1ecc83b0819"
+  },
+  "D:\\hjjk\\fpai\\docker-compose.prod.yml": {
+    "mtime": 1775187793.299975,
+    "hash": "fdaaab2b245c4a6e8b44b32cdbe156ef"
+  },
+  "D:\\hjjk\\fpai\\docker-compose.yml": {
+    "mtime": 1778468179.0847037,
+    "hash": "0286d673daa2ee609741c3f95775dc01"
+  },
+  "D:\\hjjk\\fpai\\Docker\u90e8\u7f72\u6d41\u7a0b\u56fe\u89e3.md": {
+    "mtime": 1775530014.6754465,
+    "hash": "efda7561053c0bdaf84e2cb85ad80e6f"
+  },
+  "D:\\hjjk\\fpai\\URGENT_FIX_GUIDE.md": {
+    "mtime": 1776055742.1545267,
+    "hash": "770150d7a21ee94e2537c10297627019"
+  },
+  "D:\\hjjk\\fpai\\backend\\README.md": {
+    "mtime": 1775015670.3424609,
+    "hash": "6b4e9ba446a2b2712c5941a946b57617"
+  },
+  "D:\\hjjk\\fpai\\backend\\requirements.txt": {
+    "mtime": 1776155869.346599,
+    "hash": "1a193ece02bd5dc62ec853e6ca2ad460"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\skills\\fund_name_to_code\\SKILL.md": {
+    "mtime": 1775187793.2705696,
+    "hash": "337f21284edb35104b69a6ba36b6845d"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\skills\\product_compare\\prompt.txt": {
+    "mtime": 1775187793.2735772,
+    "hash": "b0cdcb181ba8e61b64f35ba8d19bf3ee"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\skills\\product_compare\\README.md": {
+    "mtime": 1775187793.2725668,
+    "hash": "833d991ad05e4b0cbdcf76ec6ec00d7a"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\skills\\product_compare\\SKILL.md": {
+    "mtime": 1775187793.2725668,
+    "hash": "36a5e63cec58fa13d027b363920e1f89"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\skills\\product_interpret\\SKILL.md": {
+    "mtime": 1775187793.2745678,
+    "hash": "e4910c47d82580ce294350704aaa30f4"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\skills\\product_query\\README.md": {
+    "mtime": 1775187793.2759035,
+    "hash": "8ae0b320dd50119260e7f1913cf9d7bd"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\skills\\product_query\\SKILL.md": {
+    "mtime": 1775187793.2771666,
+    "hash": "9853e23c3e388f7f58d6e9b77185c1b6"
+  },
+  "D:\\hjjk\\fpai\\backend\\agents\\skills\\product_recommend\\SKILL.md": {
+    "mtime": 1775187793.2791977,
+    "hash": "0d3c2cf1e5c4fc4871e18a2a4945db69"
+  },
+  "D:\\hjjk\\fpai\\docs\\\u529f\u80fd\u67b6\u6784\u56fe.md": {
+    "mtime": 1775015670.3969648,
+    "hash": "9f02883d195538f97ad7df9301465471"
+  },
+  "D:\\hjjk\\fpai\\docs\\\u6280\u672f\u67b6\u6784\u56fe.md": {
+    "mtime": 1775015670.3969648,
+    "hash": "af022233d385d36acd6d260899106d0c"
+  },
+  "D:\\hjjk\\fpai\\docs\\\u9886\u57df\u6a21\u578b\u4e0eAPI\u9002\u914d\u5668\u8bbe\u8ba1.md": {
+    "mtime": 1775015670.403963,
+    "hash": "c6e1135a03256dd5c5f19d8713808ba1"
+  },
+  "D:\\hjjk\\fpai\\frontend\\index.html": {
+    "mtime": 1775790921.6257615,
+    "hash": "983b13eaf4c847f1fa8c11785f9cabda"
+  },
+  "D:\\hjjk\\fpai\\docs\\\u7aef\u5230\u7aef\u6570\u636e\u6d41.png": {
+    "mtime": 1775015670.3989635,
+    "hash": "592ad799b7065c28353b782cce4a0237"
+  },
+  "D:\\hjjk\\fpai\\docs\\\u91d1\u878d\u4ea7\u54c1\u89e3\u6790\u667a\u80fd\u4f53\u529f\u80fd\u67b6\u6784\u56fe.jpg": {
+    "mtime": 1775015670.4019635,
+    "hash": "4e5efed025174155cf832867320e2260"
+  },
+  "D:\\hjjk\\fpai\\docs\\\u91d1\u878d\u4ea7\u54c1\u89e3\u6790\u667a\u80fd\u4f53\u6280\u672f\u67b6\u6784\u56fe.png": {
+    "mtime": 1775015670.403963,
+    "hash": "8a883014f4b718ebff815d358f63b400"
+  },
+  "D:\\hjjk\\fpai\\frontend\\public\\favicon.svg": {
+    "mtime": 1775015670.4069636,
+    "hash": "e3b13152c10124f7dea5bfba58aecd11"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\assets\\fcsa\\bjt.png": {
+    "mtime": 1775015670.4169643,
+    "hash": "ff5e7ec008ccbc01247671d5ead03194"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\assets\\fcsa\\dun.png": {
+    "mtime": 1775015670.4169643,
+    "hash": "90956ade9c9cba75d802ce0021e23534"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\assets\\fcsa\\ellipsis.svg": {
+    "mtime": 1775015670.4179637,
+    "hash": "d732ae9a730b97d784eee46f97141d60"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\assets\\fcsa\\icon-\u6807\u9898@1x.png": {
+    "mtime": 1775015670.4179637,
+    "hash": "857233f776cb1108a8daee19393f732b"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\assets\\fcsa\\location.svg": {
+    "mtime": 1775015670.4189637,
+    "hash": "6f5f00140b0a7adc95ee8881d7a771c5"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\assets\\fcsa\\location@1x.png": {
+    "mtime": 1775015670.4189637,
+    "hash": "6ff4044de88d1f559dabdcbae85656e6"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\assets\\fcsa\\lock.png": {
+    "mtime": 1775015670.4199638,
+    "hash": "508b9ca33fc03a5b3c6d4b39620e0053"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\assets\\fcsa\\logo.png": {
+    "mtime": 1775015670.4199638,
+    "hash": "88db0d1aedc2633883d00e80a2c20412"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\assets\\fcsa\\setting (Background).svg": {
+    "mtime": 1775015670.4209635,
+    "hash": "9091edc6a8b31e1639cef0e50e0b2e6c"
+  },
+  "D:\\hjjk\\fpai\\frontend\\src\\assets\\fcsa\\user.png": {
+    "mtime": 1775015670.4209635,
+    "hash": "c8cd4a89ee1e6615da84a1b58bf1951f"
+  }
+}

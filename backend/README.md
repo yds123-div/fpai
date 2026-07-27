@@ -4,7 +4,7 @@
 
 ## 环境
 
-- Python 3.10+
+- Python 3.12+（代码含 PEP 701 嵌套引号 f-string，agentscope 2.0 亦要求 >=3.11）
 - 依赖：`pip install -r requirements.txt` 或 `pip install -e .`
 
 ## 启动

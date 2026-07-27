@@ -37,13 +37,14 @@ go.work
 *.swo
 *~
 
-# OS
-.DS_Store
-Thumbs.db
-
 # Config files with sensitive data
 .env
 .env.local
+.env.production
+.env.*.local
+
+# Keep the template
+!.env.production.template
 
 # Logs
 *.log
@@ -57,3 +58,5 @@ uploads/
 tmp/
 temp/
 
+# Graphify：可提交 graph.json / graph.html，忽略抽取缓存
+graphify-out/cache/

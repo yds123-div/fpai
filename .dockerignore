@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+env/
+backend/.venv/
+backend/venv/
+
+# Node.js
+node_modules/
+frontend/node_modules/
+.npm/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Environment files with secrets
+.env
+backend/.env
+
+# Test & coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Docker
+docker-compose.yml
+Dockerfile
+
+# CloudBase (only exclude config files, keep mysql init.sql in build context)
+cloudbaserc.json
+cloudrun/**/cloudbaserc.json
+
+# Documentation
+*.md
+!README.md
+
+# Misc
+*.tmp
+*.temp
+start.sh

@@ -25,9 +25,16 @@ from api.middleware import add_trace_id_middleware, add_auth_middleware
 from api.routes import auth as auth_routes
 from api.routes import users as users_routes
 from api.routes import chat as chat_routes
-from api.routes import compare_recommend_report as compare_recommend_report_routes
 from api.routes import evidence_feedback_products_sessions as evidence_feedback_products_sessions_routes
 from api.routes import documents as documents_routes
+from api.routes import knowledge as knowledge_routes
+from api.routes import models as models_routes
+from api.routes import agents as agents_routes
+from api.routes import rbac as rbac_routes
+from api.routes import skills as skills_routes
+from api.routes import config as config_routes
+from api.routes import funds as funds_routes
+from api.routes import fund_ratings as fund_ratings_routes
 from pkg.codes import ErrorCode, envelope, message_for
 from pkg.logger import configure_logging, get_logger
 
@@ -100,9 +107,16 @@ def health():
 app.include_router(auth_routes.router, prefix="/api/v1")
 app.include_router(users_routes.router, prefix="/api/v1")
 app.include_router(chat_routes.router, prefix="/api/v1")
-app.include_router(compare_recommend_report_routes.router, prefix="/api/v1")
 app.include_router(evidence_feedback_products_sessions_routes.router, prefix="/api/v1")
 app.include_router(documents_routes.router, prefix="/api/v1")
+app.include_router(knowledge_routes.router, prefix="/api/v1")
+app.include_router(models_routes.router, prefix="/api/v1")
+app.include_router(agents_routes.router, prefix="/api/v1")
+app.include_router(rbac_routes.router, prefix="/api/v1")
+app.include_router(skills_routes.router, prefix="/api/v1")
+app.include_router(config_routes.router, prefix="/api/v1")
+app.include_router(funds_routes.router, prefix="/api/v1")
+app.include_router(fund_ratings_routes.router, prefix="/api/v1")
 
 @app.get("/api/v1")
 def api_root():
@@ -113,14 +127,22 @@ def api_root():
 def _run_dev():
     """开发时可直接 python -m api.main，端口由环境变量 PORT 指定（默认 8000）。"""
     import os
+    import socket
     import uvicorn
     port = int(os.environ.get("PORT", "8000"))
-    uvicorn.run(
+    host = os.environ.get("HOST", "0.0.0.0")
+    # 手动创建 socket 并设置 SO_REUSEADDR，避免端口 TIME_WAIT 导致 bind 失败
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind((host, port))
+    config = uvicorn.Config(
         "api.main:app",
-        host=os.environ.get("HOST", "0.0.0.0"),
+        host=host,
         port=port,
         reload=True,
     )
+    server = uvicorn.Server(config)
+    server.run(sockets=[sock])
 
 
 if __name__ == "__main__":

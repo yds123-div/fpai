@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "name": "任务开始提醒",
+  "description": "在任务执行前提醒查看 PRD、架构文档和技术设计",
+  "version": "1",
+  "when": {
+    "type": "preTaskExecution"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "任务即将开始。请确认：1) 是否已阅读相关的 PRD 和技术设计文档 2) 是否理解架构约束和决策 3) 是否明确任务的验收标准。如果需要，请先查看相关文档。"
+  }
+}

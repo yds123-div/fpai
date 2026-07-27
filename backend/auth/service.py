@@ -54,10 +54,7 @@ def hash_password(plain: str) -> str:
     if not _BCRYPT_AVAILABLE or not plain:
         return ""
     digest = _sha256_hex(plain)
-    logger.info(f"digest: {digest}")
     salt = _bcrypt.gensalt(rounds=BCRYPT_ROUNDS)
-    logger.info(f"salt: {salt}")
-    logger.info(f"hashpw: {_bcrypt.hashpw(digest.encode("utf-8"), salt).decode("ascii")}")
     return _bcrypt.hashpw(digest.encode("utf-8"), salt).decode("ascii")
 
 
@@ -94,12 +91,10 @@ def verify_user(account: str, password: str) -> dict[str, Any] | None:
     account = (account or "").strip()
     password = password or ""
     if not mysql_configured():
-        logger.info("verify_user: MySQL 未配置，返回 None")
         return None
     try:
         with get_connection() as conn:
             if not conn:
-                logger.info("verify_user: 连接失败，返回 None")
                 return None
             with conn.cursor() as cur:
                 cur.execute(
@@ -109,11 +104,9 @@ def verify_user(account: str, password: str) -> dict[str, Any] | None:
                 )
                 row = cur.fetchone()
         if not row:
-            logger.info("verify_user: 用户不存在，返回 None")
             return None
         user_id, acc, password_hash_val, name, employee_no, email = row
         if not verify_password(password, password_hash_val or ""):
-            logger.info("verify_user: 密码校验失败，返回 None")
             return None
         return {
             "id": user_id,
@@ -123,7 +116,7 @@ def verify_user(account: str, password: str) -> dict[str, Any] | None:
             "email": email or "",
         }
     except Exception as e:
-        logger.info("verify_user 失败: %s", e)
+        logger.warning("verify_user 失败: %s", e)
         return None
 
 
@@ -132,22 +125,19 @@ def issue_token(user_id: str) -> str:
     签发 JWT；payload 含 sub=user_id、exp、iat。
     未配置 JWT_SECRET 或未安装 pyjwt 时返回空字符串。
     """
-    logger.info("issue_token: 开始签发 Token user_id=%s", user_id)
     if not _JWT_AVAILABLE:
-        logger.info("issue_token: JWT 不可用，返回空字符串")
         return ""
     secret = (os.getenv(JWT_SECRET_ENV) or "").strip()
     if not secret:
-        logger.info("JWT_SECRET 未配置，无法签发 Token")
+        logger.warning("JWT_SECRET 未配置，无法签发 Token")
         return ""
     now = datetime.now(timezone.utc)
     payload = {
-        "sub": user_id,
+        # PyJWT 会校验 sub 必须为字符串；这里统一转为 str，避免 users.id 为数值时导致 token 无效
+        "sub": str(user_id),
         "iat": now,
         "exp": now + timedelta(seconds=JWT_EXPIRES_SECONDS),
     }
-    logger.info("issue_token: 签发 Token secret=%s", secret)
-    logger.info("issue_token: 签发 Token payload=%s", payload)
     return jwt.encode(payload, secret, algorithm=JWT_ALGORITHM)
 
 
@@ -167,9 +157,9 @@ def verify_token(token: str) -> dict[str, Any] | None:
         if isinstance(payload, dict) and payload.get("sub"):
             return payload
     except jwt.ExpiredSignatureError:
-        logger.debug("Token 已过期")
-    except Exception as e:
-        logger.debug("Token 校验失败: %s", e)
+        pass
+    except Exception:
+        pass
     return None
 
 
@@ -376,13 +366,29 @@ def create_user(
             with conn.cursor() as cur:
                 conflict = _find_unique_conflict(cur, account=account, name=name_s or None, employee_no=employee_no_s or None, email=email_s or None)
                 if conflict:
-                    logger.info("create_user: %s 已存在", conflict)
                     return None, conflict
-                cur.execute(
-                    """INSERT INTO users (account, password_hash, name, employee_no, email)
-                       VALUES (%s, %s, %s, %s, %s)""",
-                    (account, pwd_hash, name_s, employee_no_s, email_s),
-                )
+
+                # 优先：让数据库自增/生成主键（不显式插入 id）
+                # 回退：若你的库里 users.id 不是自增（例如 VARCHAR 主键无默认值），再显式插入 u_{uuid}。
+                try:
+                    cur.execute(
+                        """INSERT INTO users (account, password_hash, name, employee_no, email)
+                           VALUES (%s, %s, %s, %s, %s)""",
+                        (account, pwd_hash, name_s, employee_no_s, email_s),
+                    )
+                except Exception as e:
+                    # 仅在 "id 没有默认值"（例如 VARCHAR 主键无默认值）时才回退写入 id。
+                    # 这样在 users.id 为 INT AUTO_INCREMENT 时不会误触发 u_{uuid} 回退。
+                    msg = str(e)
+                    if ("doesn't have a default value" in msg) or ("Field 'id'" in msg):
+                        user_id = "u_" + uuid.uuid4().hex
+                        cur.execute(
+                            """INSERT INTO users (id, account, password_hash, name, employee_no, email)
+                               VALUES (%s, %s, %s, %s, %s, %s)""",
+                            (user_id, account, pwd_hash, name_s, employee_no_s, email_s),
+                        )
+                    else:
+                        raise
                 conn.commit()
         with get_connection() as conn2:
             if not conn2:
@@ -442,7 +448,6 @@ def update_user(
                 email_val = (email or "").strip() if email is not None else None
                 conflict = _find_unique_conflict(cur, account=acc_val, name=name_val, employee_no=emp_val, email=email_val, exclude_user_id=user_id)
                 if conflict:
-                    logger.info("update_user: %s 已存在 user_id=%s", conflict, user_id)
                     return None, conflict
                 params = []
                 if account is not None:

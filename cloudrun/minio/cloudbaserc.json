@@ -1,0 +1,6 @@
+{
+  "envId": "ceshi-d2ge61l3r9423468d",
+  "cloudrun": {
+    "name": "fpai-minio"
+  }
+}

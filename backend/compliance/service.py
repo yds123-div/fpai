@@ -11,7 +11,7 @@ from typing import Any
 
 from compliance.config import CompliancePolicy, DEFAULT_POLICY
 from compliance.types import ComplianceAction, ComplianceDecision
-from pkg.logger import get_logger, get_trace_id
+from pkg.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -31,8 +31,8 @@ def _resolve_policy(policy: CompliancePolicy | None) -> CompliancePolicy:
             raw = _get_compliance_policy_from_config()
             if raw:
                 return CompliancePolicy.from_dict(raw)
-        except Exception as e:
-            logger.debug("从 config 加载合规策略失败，使用默认: %s", e)
+        except Exception:
+            pass
     return DEFAULT_POLICY
 
 # 尝试导入 model_gateway，未配置时仅做规则审查
@@ -68,10 +68,6 @@ def check_input(
     # 1) 黑名单规则
     hits = policy.blacklist_matches(text)
     if hits and not policy.is_whitelisted(text):
-        logger.info(
-            "compliance input blacklist hit",
-            extra={"trace_id": get_trace_id(), "user_id": user_id, "hits": hits},
-        )
         return ComplianceDecision(
             action=ComplianceAction.REJECT,
             reason=f"输入命中敏感词: {', '.join(hits)}",
@@ -84,7 +80,7 @@ def check_input(
         try:
             return _llm_input_check(text, user_id, policy)
         except ModelNotConfiguredError:
-            logger.debug("LLM 未配置，输入审查仅做规则通过")
+            pass
         except Exception as e:
             logger.warning("合规输入 LLM 审查异常，降级为通过", extra={"error": str(e)})
 
@@ -137,10 +133,6 @@ def check_output(
     # 1) 黑名单规则
     hits = policy.blacklist_matches(content_for_rules)
     if hits and not policy.is_whitelisted(content_for_rules):
-        logger.info(
-            "compliance output blacklist hit",
-            extra={"hits": hits, "policy_version": policy.policy_version},
-        )
         return ComplianceDecision(
             action=ComplianceAction.REJECT,
             reason=f"输出命中敏感词: {', '.join(hits)}",
@@ -153,7 +145,7 @@ def check_output(
         try:
             return _llm_output_check(text, structured_output, citations, policy)
         except ModelNotConfiguredError:
-            logger.debug("LLM 未配置，输出审查仅做规则通过")
+            pass
         except Exception as e:
             logger.warning("合规输出 LLM 审查异常，降级为通过", extra={"error": str(e)})
 

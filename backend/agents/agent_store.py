@@ -1,0 +1,284 @@
+from __future__ import annotations
+
+"""
+Agent 配置存储（MySQL）：
+
+- 用于 Agent 管理台：展示/编辑模型选择(model_id)、启用/禁用、skills 等
+- MVP：custom agent 仅用于管理，不参与对话路由；内置 agent 支持配置覆盖
+"""
+
+import time
+from typing import Any
+
+from pkg.logger import get_logger
+from pkg.mysql_client import get_connection, is_configured as mysql_configured
+
+
+logger = get_logger(__name__)
+
+
+TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS agent_profiles (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  agent_key VARCHAR(64) NOT NULL,
+  name VARCHAR(128) NOT NULL DEFAULT '',
+  type VARCHAR(32) NOT NULL DEFAULT 'custom',        -- builtin | custom
+  enabled TINYINT(1) NOT NULL DEFAULT 1,
+  skill_keys LONGTEXT,
+  model_id BIGINT UNSIGNED NULL,
+  created_by VARCHAR(64) NOT NULL DEFAULT '',
+  updated_by VARCHAR(64) NOT NULL DEFAULT '',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted_at TIMESTAMP NULL DEFAULT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_agent_profiles_key (agent_key),
+  KEY idx_agent_profiles_type (type),
+  KEY idx_agent_profiles_enabled (enabled),
+  KEY idx_agent_profiles_deleted_at (deleted_at),
+  KEY idx_agent_profiles_updated_at (updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+"""
+
+
+def _ensure_table() -> bool:
+    if not mysql_configured():
+        return False
+    try:
+        with get_connection() as conn:
+            if not conn:
+                return False
+            with conn.cursor() as cur:
+                cur.execute(TABLE_SQL)
+                # 兼容老表：补列（若已存在会失败，忽略即可）
+                try:
+                    cur.execute("ALTER TABLE agent_profiles ADD COLUMN skill_keys LONGTEXT")
+                except Exception:
+                    pass
+                # ADR-0003 决策 4（#42）：DROP 已退役的 system_prompt 列（已删则忽略）
+                try:
+                    cur.execute("ALTER TABLE agent_profiles DROP COLUMN system_prompt")
+                except Exception:
+                    pass
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.warning("ensure agent_profiles table failed: %s", e)
+        return False
+
+
+# ---- 轻量缓存：避免每次 run 都查库（仅用于读取） ----
+_CACHE_TTL_SECONDS = 30.0
+_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+
+
+def _cache_get(key: str) -> dict[str, Any] | None:
+    item = _cache.get(key)
+    if not item:
+        return None
+    ts, obj = item
+    if (time.time() - ts) > _CACHE_TTL_SECONDS:
+        _cache.pop(key, None)
+        return None
+    return obj
+
+
+def _cache_set(key: str, obj: dict[str, Any]) -> None:
+    _cache[key] = (time.time(), obj)
+
+
+def _cache_invalidate(agent_key: str | None = None) -> None:
+    if not agent_key:
+        _cache.clear()
+        return
+    _cache.pop(str(agent_key), None)
+
+
+def list_agents(include_deleted: bool = False) -> list[dict[str, Any]]:
+    if not _ensure_table():
+        return []
+    where = "" if include_deleted else "WHERE deleted_at IS NULL"
+    try:
+        with get_connection() as conn:
+            if not conn:
+                return []
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT agent_key, name, type, enabled, skill_keys, model_id, updated_by, updated_at, deleted_at
+                    FROM agent_profiles
+                    {where}
+                    ORDER BY updated_at DESC
+                    """
+                )
+                rows = cur.fetchall() or []
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            out.append(
+                {
+                    "agent_key": r[0] or "",
+                    "name": r[1] or "",
+                    "type": r[2] or "custom",
+                    "enabled": int(r[3] or 0),
+                    "skill_keys": r[4] or "",
+                    "model_id": int(r[5]) if r[5] is not None else None,
+                    "updated_by": r[6] or "",
+                    "updated_at": str(r[7]) if r[7] is not None else None,
+                    "deleted_at": str(r[8]) if r[8] is not None else None,
+                }
+            )
+        return out
+    except Exception as e:
+        logger.warning("list_agents failed: %s", e)
+        return []
+
+
+def get_agent(agent_key: str) -> dict[str, Any] | None:
+    agent_key = (agent_key or "").strip()
+    if not agent_key:
+        return None
+    cached = _cache_get(agent_key)
+    if cached is not None:
+        return cached
+    if not _ensure_table():
+        return None
+    try:
+        with get_connection() as conn:
+            if not conn:
+                return None
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT agent_key, name, type, enabled, skill_keys, model_id, updated_by, updated_at, deleted_at
+                    FROM agent_profiles
+                    WHERE agent_key = %s
+                    LIMIT 1
+                    """,
+                    (agent_key,),
+                )
+                r = cur.fetchone()
+        if not r:
+            return None
+        obj = {
+            "agent_key": r[0] or "",
+            "name": r[1] or "",
+            "type": r[2] or "custom",
+            "enabled": int(r[3] or 0),
+            "skill_keys": r[4] or "",
+            "model_id": int(r[5]) if r[5] is not None else None,
+            "updated_by": r[6] or "",
+            "updated_at": str(r[7]) if r[7] is not None else None,
+            "deleted_at": str(r[8]) if r[8] is not None else None,
+        }
+        _cache_set(agent_key, obj)
+        return obj
+    except Exception as e:
+        logger.warning("get_agent failed: %s", e)
+        return None
+
+
+def upsert_agent(payload: dict[str, Any], *, actor_user_id: str) -> bool:
+    """
+    新增/更新 agent_profile（按 agent_key upsert）。
+    """
+    if not _ensure_table():
+        return False
+    agent_key = (payload.get("agent_key") or "").strip()
+    name = (payload.get("name") or "").strip()
+    typ = (payload.get("type") or "custom").strip() or "custom"
+    enabled = 1 if int(payload.get("enabled", 1) or 1) else 0
+    skill_keys = payload.get("skill_keys")
+    model_id = payload.get("model_id")
+
+    if not agent_key:
+        return False
+    if typ not in ("builtin", "custom"):
+        typ = "custom"
+
+    # model_id 可空
+    mid: int | None = None
+    try:
+        if model_id is not None and str(model_id).strip() != "":
+            mid = int(model_id)
+    except Exception:
+        mid = None
+
+    try:
+        sk_json = ""
+        if skill_keys is None:
+            sk_json = ""
+        elif isinstance(skill_keys, str):
+            sk_json = skill_keys
+        elif isinstance(skill_keys, list):
+            try:
+                import json as _json
+
+                sk_json = _json.dumps(skill_keys, ensure_ascii=False)
+            except Exception:
+                sk_json = ""
+        else:
+            sk_json = ""
+
+        with get_connection() as conn:
+            if not conn:
+                return False
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO agent_profiles (agent_key, name, type, enabled, skill_keys, model_id, created_by, updated_by, deleted_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NULL)
+                    ON DUPLICATE KEY UPDATE
+                      name=VALUES(name),
+                      type=VALUES(type),
+                      enabled=VALUES(enabled),
+                      skill_keys=VALUES(skill_keys),
+                      model_id=VALUES(model_id),
+                      updated_by=VALUES(updated_by),
+                      deleted_at=NULL
+                    """,
+                    (
+                        agent_key,
+                        name,
+                        typ,
+                        enabled,
+                        sk_json,
+                        mid,
+                        actor_user_id or "",
+                        actor_user_id or "",
+                    ),
+                )
+            conn.commit()
+        _cache_invalidate(agent_key)
+        return True
+    except Exception as e:
+        logger.warning("upsert_agent failed: %s", e)
+        return False
+
+
+def soft_delete_agent(agent_key: str, *, actor_user_id: str) -> bool:
+    if not _ensure_table():
+        return False
+    agent_key = (agent_key or "").strip()
+    if not agent_key:
+        return False
+    try:
+        with get_connection() as conn:
+            if not conn:
+                return False
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE agent_profiles
+                    SET deleted_at = NOW(), updated_by=%s
+                    WHERE agent_key=%s AND deleted_at IS NULL
+                    """,
+                    (actor_user_id or "", agent_key),
+                )
+            conn.commit()
+            ok = (cur.rowcount or 0) > 0
+        _cache_invalidate(agent_key)
+        return ok
+    except Exception as e:
+        logger.warning("soft_delete_agent failed: %s", e)
+        return False
+

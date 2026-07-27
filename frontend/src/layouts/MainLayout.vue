@@ -14,7 +14,8 @@
           <a-button 
             type="primary" 
             :class="['new-conversation-btn', { 'active': isActiveMenu.chat }]"
-            @click="handleNav('/fpai/chat')"
+            :disabled="showSessionHistory && chatBusy"
+            @click="handleNewConversation"
           >
             <PlusOutlined />
             开启新对话
@@ -34,14 +35,7 @@
               <StarOutlined />
               <span>产品推荐</span>
             </a>
-            <a 
-              :class="['nav-link', { 'active': isActiveMenu.report }]"
-              @click="handleNav('/fpai/report')"
-            >
-              <FileTextOutlined />
-              <span>报告生成</span>
-            </a>
-            <a 
+          <!--   <a 
               :class="['nav-link', { 'active': isActiveMenu.evidence }]"
               @click="handleNav('/fpai/evidence')"
             >
@@ -55,6 +49,7 @@
               <MessageOutlined />
               <span>回答反馈</span>
             </a>
+            -->
             <a 
               :class="['nav-link', { 'active': isActiveMenu.products }]"
               @click="handleNav('/fpai/products')"
@@ -62,17 +57,17 @@
               <UnorderedListOutlined />
               <span>产品列表</span>
             </a>
-            <a 
-              :class="['nav-link', { 'active': isActiveMenu.knowledgeBase }]"
-              @click="handleNav('/fpai/knowledge')"
+            <a
+              :class="['nav-link', { 'active': isActiveMenu.rm }]"
+              @click="handleNav('/fpai/rm')"
             >
-              <BookOutlined />
-              <span>知识库检索</span>
+              <AppstoreOutlined />
+              <span>RM工作台</span>
             </a>
           </div>
         </div>
         <div class="conversation-history">
-          
+          <SessionHistoryList v-if="showSessionHistory" />
         </div>
         <div class="sidebar-bottom">
           <!-- <a class="nav-link">
@@ -96,7 +91,7 @@
                   <UserOutlined />
                   <span style="margin-left: 10px;">个人信息</span>
                 </a-menu-item>
-                <a-menu-item key="settings">
+                <a-menu-item v-if="canAccessAdmin" key="settings">
                   <SettingOutlined />
                   <span style="margin-left: 10px;">后台管理</span>
                 </a-menu-item>
@@ -173,49 +168,114 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch, computed } from 'vue'
+import { ref, reactive, watch, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { Modal, message } from 'ant-design-vue'
 import {
   PlusOutlined,
   SwapOutlined,
   StarOutlined,
-  FileTextOutlined,
-  AuditOutlined,
-  MessageOutlined,
+  AppstoreOutlined,
   UnorderedListOutlined,
-  BookOutlined,
   UserOutlined,
   SettingOutlined,
   LogoutOutlined,
 } from '@ant-design/icons-vue'
 import { useUserStore } from '@/store/user'
-import { updateCurrentUser, changePassword, getUserInfo } from '@/api/user'
+import { updateCurrentUser, changePassword, getUserInfo, getUserMenus } from '@/api/user'
 import { encryptPassword } from '@/utils/crypto'
+import SessionHistoryList from '@/components/chat/SessionHistoryList.vue'
+import { storage } from '@/utils/storage'
 
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
+const isAdminByRole = computed(() => {
+  const roles = (userStore.userInfo as any)?.roles
+  if (!Array.isArray(roles)) return false
+  return roles.map((x: any) => String(x).toLowerCase()).includes('admin')
+})
+
+const canAccessAdmin = ref(false)
+const adminHomePath = ref('/admin/theme-settings')
+const chatBusy = ref(false)
+const SESSION_STORAGE_KEY = 'chat_session_id'
+
+const initAdminAccess = async () => {
+  if (isAdminByRole.value) {
+    canAccessAdmin.value = true
+    adminHomePath.value = '/admin/theme-settings'
+    return
+  }
+  try {
+    const res = await getUserMenus()
+    const menus = Array.isArray(res.data) ? res.data : []
+    const first = menus.find(m => (m.path || '').startsWith('/admin')) || menus[0]
+    if (first?.path) {
+      canAccessAdmin.value = true
+      adminHomePath.value = first.path
+    } else {
+      canAccessAdmin.value = false
+    }
+  } catch {
+    canAccessAdmin.value = false
+  }
+}
+
+watch(
+  () => isAdminByRole.value,
+  (val) => {
+    if (val) {
+      canAccessAdmin.value = true
+      adminHomePath.value = '/admin/theme-settings'
+    } else {
+      canAccessAdmin.value = false
+      initAdminAccess()
+    }
+  },
+  { immediate: true }
+)
 
 // 判断当前激活的菜单项
 const isActiveMenu = computed(() => {
   const path = route.path
   return {
-    chat: path === '/fpai/chat',
+    chat: path === '/chat',
     compare: path === '/fpai/compare',
     recommend: path === '/fpai/recommend',
     report: path === '/fpai/report',
     evidence: path === '/fpai/evidence',
     feedback: path === '/fpai/feedback',
     products: path === '/fpai/products',
-    knowledgeBase: path === '/fpai/knowledge'
+    rm: path === '/fpai/rm'
   }
 })
+
+const showSessionHistory = computed(() => route.path.startsWith('/chat'))
 
 // 侧栏导航跳转
 const handleNav = (path: string) => {
   router.push(path)
 }
+
+const handleNewConversation = () => {
+  if (showSessionHistory.value && chatBusy.value) return
+  storage.remove(SESSION_STORAGE_KEY)
+  router.push({ path: '/chat', query: {} })
+}
+
+function onChatLoadingChange(ev: Event) {
+  const e = ev as CustomEvent<{ loading?: boolean }>
+  chatBusy.value = Boolean(e?.detail?.loading)
+}
+
+onMounted(() => {
+  window.addEventListener('chat-loading-change', onChatLoadingChange as EventListener)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('chat-loading-change', onChatLoadingChange as EventListener)
+})
 
 // 个人信息弹窗相关状态
 const profileModalVisible = ref(false)
@@ -398,7 +458,7 @@ const handleMenuClick = ({ key }: { key: string }) => {
       profileModalVisible.value = true
       break
     case 'settings':
-      router.push('/admin/theme-settings')
+      router.push(adminHomePath.value || '/admin/theme-settings')
       break
     case 'logout':
       Modal.confirm({
@@ -415,6 +475,8 @@ const handleMenuClick = ({ key }: { key: string }) => {
 </script>
 
 <style scoped lang="scss">
+@use 'sass:color';
+
 .main-layout {
   display: flex;
   flex-direction: column;
@@ -540,7 +602,7 @@ $header-text-muted: #a0b0c0;
       transition: background 0.2s;
 
       &:hover {
-        background: lighten($header-logo-bg, 6%);
+        background: color.adjust($header-logo-bg, $lightness: 6%);
       }
 
       .chevron {

@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "name": "Vue 组件规范检查",
+  "description": "保存 Vue 文件时自动检查是否符合前端开发规范（Composition API、命名规范、组件职责）",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "frontend/**/*.vue"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "检查这个 Vue 组件是否符合规范：1) 是否使用 Composition API (setup script) 2) 组件命名是否使用 PascalCase 3) 组件职责是否单一 4) 是否有适当的注释。只指出问题，不要重写整个文件。"
+  }
+}

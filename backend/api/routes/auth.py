@@ -26,12 +26,20 @@ logger = get_logger(__name__)
 
 def _user_to_response(user: dict) -> dict:
     """将用户 dict 转为响应体 user 对象（id、account、name、employee_no、email）。"""
+    try:
+        from rbac.store import get_user_role_codes, ensure_seed_admin
+
+        ensure_seed_admin()
+        roles = get_user_role_codes(str(user.get("id", "") or ""))
+    except Exception:
+        roles = []
     return {
         "id": user.get("id", ""),
         "account": user.get("account", ""),
         "name": user.get("name", ""),
         "employee_no": user.get("employee_no", ""),
         "email": user.get("email", ""),
+        "roles": roles,
     }
 
 

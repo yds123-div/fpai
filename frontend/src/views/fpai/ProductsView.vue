@@ -3,14 +3,17 @@
     <a-typography-title :level="4">产品列表 / 筛选</a-typography-title>
     <a-card size="small" style="margin-bottom: 16px">
       <a-form layout="inline" @finish="onSearch">
-        <a-form-item label="产品类型" name="productType">
-          <a-input v-model:value="productType" placeholder="可选" style="width: 120px" allow-clear />
+        <a-form-item label="产品代码" name="productCode">
+          <a-input v-model:value="productCode" placeholder="支持模糊" style="width: 140px" allow-clear />
         </a-form-item>
-        <a-form-item label="关键词" name="keyword">
-          <a-input v-model:value="keyword" placeholder="可选" style="width: 160px" allow-clear />
+        <a-form-item label="产品名称" name="keyword">
+          <a-input v-model:value="keyword" placeholder="支持模糊" style="width: 180px" allow-clear />
         </a-form-item>
         <a-form-item>
-          <a-button type="primary" html-type="submit" :loading="loading">搜索</a-button>
+          <a-button type="primary" :loading="loading" @click="onSearch">搜索</a-button>
+        </a-form-item>
+        <a-form-item>
+          <a-button :loading="syncLoading" @click="onSync">同步基金数据</a-button>
         </a-form-item>
       </a-form>
     </a-card>
@@ -29,18 +32,20 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
-import { getProductsSearch } from '@/api/products'
+import { message } from 'ant-design-vue'
+import { getProductsSearch, syncFundProducts } from '@/api/products'
 
-const productType = ref('')
+const productCode = ref('')
 const keyword = ref('')
 const loading = ref(false)
+const syncLoading = ref(false)
 const errorMsg = ref('')
 const products = ref([])
 const total = ref(0)
 
 const columns = [
-  { title: 'ID', dataIndex: 'id', key: 'id', width: 100, ellipsis: true },
-  { title: '名称', dataIndex: 'name', key: 'name', ellipsis: true },
+  { title: '产品代码', dataIndex: 'id', key: 'id', width: 100, ellipsis: true },
+  { title: '产品名称', dataIndex: 'name', key: 'name', ellipsis: true },
   { title: '类型', dataIndex: 'productType', key: 'productType', width: 100 },
   { title: '风险等级', dataIndex: 'riskLevel', key: 'riskLevel', width: 90 },
   { title: '期限', dataIndex: 'term', key: 'term', width: 80 },
@@ -59,7 +64,7 @@ async function loadProducts() {
   errorMsg.value = ''
   try {
     const data = await getProductsSearch({
-      productType: productType.value?.trim() || undefined,
+      productCode: productCode.value?.trim() || undefined,
       keyword: keyword.value?.trim() || undefined,
       page: pagination.current,
       pageSize: pagination.pageSize,
@@ -72,6 +77,20 @@ async function loadProducts() {
     products.value = []
   } finally {
     loading.value = false
+  }
+}
+
+async function onSync() {
+  syncLoading.value = true
+  try {
+    const data = await syncFundProducts({ limit: 100 })
+    message.success(`同步完成：有效${data.valid ?? 0}条，写入${data.affected ?? 0}条`)
+    pagination.current = 1
+    await loadProducts()
+  } catch (e) {
+    message.error(e?.message || '同步失败')
+  } finally {
+    syncLoading.value = false
   }
 }
 

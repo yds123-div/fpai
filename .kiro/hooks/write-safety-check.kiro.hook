@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "name": "写入操作安全检查",
+  "description": "在执行写入操作前检查是否会影响关键文件或破坏现有功能",
+  "version": "1",
+  "when": {
+    "type": "preToolUse",
+    "toolTypes": [
+      "write"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "即将执行写入操作。请确认：1) 是否会覆盖重要文件 2) 是否会破坏现有功能 3) 是否需要备份。如果安全，请继续；如果有风险，请说明并建议替代方案。"
+  }
+}

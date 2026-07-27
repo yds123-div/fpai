@@ -63,15 +63,15 @@
 |----|------|--------|------|------|------|
 | T014 | config 模块：策略/模板/路由配置与版本管理（合规策略、报告模板、对比维度模板、智能体注册信息）；可从 MySQL加载 | P1 | T004 | done | 见 architecture Policy & Template Service；合规策略与版本须从 MySQL config_strategy 加载，见 .cursor/memory/compliance_improvements_plan.md |
 | T015 | 产品要素/条款抽取 product_element：内部子能力，从文档/条款中抽取期限、费率、风险、赎回规则等；供解读/对比/报告或 ingestion 调用 | P0 | T008 | done | agents/product_element/ |
-| T016 | FAQ 智能体 agents/faq：FAQ 入库(MySQL)→同步→Embedding→向量库(Milvus)→TopK 检索→ReAgent 回答；向 AgentScope 注册为工具 | P0 | T004, T008, T009 | done | 方案见 .cursor/memory/faq_design.md；实现：store/sync/retrieval/agent；faq_query 供 toolkit 注册 |
-| T017 | RAG 智能体 agents/rag：调用 retrieval 检索+生成，输出 answerBlocks 与 citations | P0 | T009, T011 | done | 向 AgentScope 注册为工具；实现 agent.query_rag/rag_query，路由已接入 _get_rag_tool() |
-| T018 | 产品列表查询智能体 agents/product_list：调用 data_access 统一接口返回可售产品列表（筛选、分页） | P0 | T010a, T011 | done | 向 AgentScope 注册为工具；实现 agent.query_product_list/product_list_query，路由已接入 _get_product_list_tool() |
-| T019 | 产品解读智能体 agents/product_interpret：Data Access + 产品要素抽取 + 可选 Retrieval + ReAgent；输出结构化要点与风险提示 | P0 | T010a, T009, T015, T008, T011 | done | 向 AgentScope 注册为工具；实现 agent.query_product_interpret/product_interpret_query，路由已接入 _get_product_interpret_tool() |
-| T020 | 产品对比智能体 agents/product_compare：多产品多维对比表、差异总结；Data Access + product_element + ReAgent | P0 | T010a, T015, T008, T011 | done | 向 AgentScope 注册为工具；实现 agent.query_product_compare/product_compare_query，路由已接入 _get_product_compare_tool() |
-| T021 | 产品推荐智能体 agents/product_recommend：按客户画像/需求 TopN 推荐；Data Access + ReAgent | P0 | T010a, T008, T011 | done | 向 AgentScope 注册为工具；实现 agent.query_product_recommend/product_recommend_query，路由已接入 _get_product_recommend_tool() |
-| T022 | 报告生成智能体 agents/report_generate：周报/月报/市场解读稿；Retrieval + Data Access + 模板 + ReAgent | P0 | T009, T010a, T008, T014, T011 | done | 向 AgentScope 注册为工具；实现 agent.query_report_generate/report_generate_query，路由已接入 _get_report_generate_tool() |
-| T023 | 猜你想问/洞察智能体 agents/insight：会话上下文 + ReAgent 生成 suggestedQuestions[] | P1 | T008, T011 | done | 向 AgentScope 注册为工具；实现 agent.query_insight/insight_query，路由已接入 _get_insight_tool() |
-| T024 | 智能体注册表 agents/registry：各能力向 AgentScope 注册为 Toolkit 工具；id、名称、意图映射、入口函数、超时/成本约束；支持配置化扩展 | P0 | T016,T017,T018,T019,T020,T021,T022 | done | registry.py：ToolEntry、BUILTIN_ENTRIES、get_all_entries、build_toolkit_from_registry；implicit 已改为从 registry 构建 Toolkit；支持 config agent_registry 扩展 |
+| T016 | FAQ 智能体 agents/faq：FAQ 入库(MySQL)→同步→Embedding→向量库(Milvus)→TopK 检索→LLM 回答；由 Coordinator 按任务路由调用 | P0 | T004, T008, T009 | done | 方案见 .cursor/memory/faq_design.md；实现：store/sync/retrieval/agent；通过编排链路调用 |
+| T017 | RAG 智能体 agents/rag：调用 retrieval 检索+生成，输出 answerBlocks 与 citations | P0 | T009, T011 | done | 由 Coordinator 路由调用 |
+| T018 | 产品列表查询智能体 agents/product_list：调用 data_access 统一接口返回可售产品列表（筛选、分页） | P0 | T010a, T011 | done | 由 Coordinator 路由调用 |
+| T019 | 产品解读智能体 agents/product_interpret：Data Access + 产品要素抽取 + 可选 Retrieval + LLM；输出结构化要点与风险提示 | P0 | T010a, T009, T015, T008, T011 | done | 由 Coordinator 路由调用 |
+| T020 | 产品对比智能体 agents/product_compare：多产品多维对比表、差异总结；Data Access + product_element + LLM | P0 | T010a, T015, T008, T011 | done | 由 Coordinator 路由调用 |
+| T021 | 产品推荐智能体 agents/product_recommend：按客户画像/需求 TopN 推荐；Data Access + LLM | P0 | T010a, T008, T011 | done | 由 Coordinator 路由调用 |
+| T022 | 报告生成智能体 agents/report_generate：周报/月报/市场解读稿；Retrieval + Data Access + 模板 + LLM | P0 | T009, T010a, T008, T014, T011 | done | 由 Coordinator 路由调用 |
+| T023 | 猜你想问/洞察智能体 agents/insight：会话上下文 + LLM 生成 suggestedQuestions[] | P1 | T008, T011 | done | 由 Coordinator 路由调用 |
+| T024 | 智能体注册/路由配置：统一维护能力清单、任务类型映射、入口函数、超时约束；支持配置化扩展 | P0 | T016,T017,T018,T019,T020,T021,T022 | done | 与 Coordinator 任务规划和路由策略保持一致 |
 
 ---
 
@@ -79,8 +79,8 @@
 
 | ID | 描述 | 优先级 | 依赖 | 状态 | 备注 |
 |----|------|--------|------|------|------|
-| T025 | 意图识别与槽位抽取 orchestrator：意图分类（FAQ/产品解读/对比/推荐/RAG/报告/洞察等）、槽位抽取（产品 ID、类型、时间范围、客户画像等）；输出意图+槽位供 AgentScope 使用 | P0 | T008 | done | orchestrator/intent_slot.py：detect_intent_and_slots、IntentSlotResult；LLM 输出 JSON，与 registry 意图对齐 |
-| T026 | 编排器与 AgentScope 集成：将意图与槽位作为上下文或候选工具集注入；ReAct 主智能体 + Toolkit（上述能力）；调用合规审查与审计落库 | P0 | T024, T025, T011, T012 | done | orchestrator/run.py：run_chat_turn/run_chat_turn_async、ChatTurnResult；意图槽位→注入提示→implicit 路由执行→合规输入/输出→审计 append_event |
+| T025 | Coordinator 任务规划：根据用户输入产出单任务/多任务计划（产品查询、解读、对比、其它），并支持多任务并行 | P0 | T008 | done | orchestrator/run.py + fund_agent_framework.coordinator；规划结果写入 trace.plan |
+| T026 | 编排执行与合规审计集成：按计划路由业务 Agent，执行后统一做输入/输出合规审查与审计落库 | P0 | T024, T025, T011, T012 | done | orchestrator/run.py：run_chat_turn/run_chat_turn_async、ChatTurnResult；计划→路由执行→合规输入/输出→审计 append_event |
 | T027 | 会话服务：会话创建、消息持久化、会话上下文（Redis session:{id}）；会话内 productIds、customerProfile 参与编排 | P0 | T004, T005 | done | orchestrator/session.py：create_session、get_session、get_session_context_for_orchestration、update_session_context、append_message、get_recent_messages；Redis 键 session:{id}，MySQL sessions/messages |
 
 ---
@@ -91,9 +91,9 @@
 |----|------|--------|------|------|------|
 | T027a | **用户与认证模块**：users 表（已迁移 002）；POST /api/v1/auth/login（账号+加密密码传输）、Token 签发与校验、GET /api/v1/auth/me；供鉴权中间件校验 Token 并注入 userId（users.id） | P0 | T003, T004 | done | auth/service.py：verify_user、issue_token、verify_token、get_user_by_id；api/routes/auth.py：POST /login、GET /me；JWT+passlib bcrypt；.env.example 增加 JWT_SECRET |
 | T028 | API 层基础：FastAPI 应用、/api/v1 前缀、鉴权中间件（Bearer Token → userId/role/productPoolIds）、统一响应 envelope（code/message/data）、X-Request-Id 与 traceId | P0 | T003, T027a | done | 鉴权中间件 api/middleware.add_auth_middleware；envelope 与 X-Request-Id/traceId 已具备；api/deps.get_current_user_id、get_auth_context 供路由注入 |
-| T029 | POST /api/v1/chat：多轮对话入口，支持 stream（SSE）、非流式；请求体 sessionId、message、productIds、customerProfile；响应 answerBlocks、citations、compliance、trace、suggestedQuestions[]；SSE 事件 message/citation/done/error | P0 | T026, T027, T028 | done | api/routes/chat.py：POST /chat（SSE+非流式）；隐式 create_session、写回会话上下文、append_message；SSE 事件 message/citation/done/error；tests/test_chat_api.py 覆盖 |
+| T029 | POST /api/v1/chat：多轮对话入口，支持 stream（SSE）、非流式；请求体 sessionId、message、productIds、customerProfile；响应 answerBlocks、citations、compliance、trace、suggestedQuestions[]、structuredOutputs[]；SSE 事件 message_start/message_delta/status/structured_update/citation/done/error | P0 | T026, T027, T028 | done | api/routes/chat.py：POST /chat（SSE+非流式）；隐式 create_session、写回会话上下文、append_message；新增 structuredOutputs 透传与事件序测试（tests/test_chat_sse_events.py） |
 | T030 | POST /api/v1/compare、POST /api/v1/recommend、POST /api/v1/report/generate：请求/响应契约与编排调用 | P0 | T026, T028 | done | api/routes/compare_recommend_report.py：/compare、/recommend、/report/generate；调用 agents product_compare/product_recommend/report_generate query_*，envelope 含 comparisonTable/summary、products/disclaimers、reportBlocks/citations 等 |
-| T031 | GET /api/v1/evidence/{answerId}、POST /api/v1/feedback、GET /api/v1/products/search、GET|POST /api/v1/sessions：证据查询、反馈、产品列表、会话详情与创建 | P0 | T012, T013, T010a, T027, T028 | done | api/routes/evidence_feedback_products_sessions.py：evidence 调 audit.get_evidence 且仅当前用户可查；feedback 调 feedback.submit_feedback；products/search 调 data_access.get_data(products)；sessions 调 orchestrator.session.get_session/create_session；tests/test_evidence_feedback_products_sessions_api.py |
+| T031 | GET /api/v1/evidence/{answerId}、POST /api/v1/feedback、GET /api/v1/products/search、GET|POST /api/v1/sessions：证据查询、反馈、产品列表、会话详情与创建 | P0 | T012, T013, T010a, T027, T028 | done | api/routes/evidence_feedback_products_sessions.py：evidence 调 audit.get_evidence 且仅当前用户可查；feedback 调 feedback.submit_feedback；products/search 本地产品库优先、data_access.get_data(products) 回退；sessions 调 orchestrator.session.get_session/create_session；tests/test_evidence_feedback_products_sessions_api.py |
 
 ---
 

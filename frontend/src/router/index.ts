@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router'
 import { useUserStore } from '@/store/user'
+import { getUserMenus, type MenuItem } from '@/api/user'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -11,7 +12,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/',
     component: () => import('@/layouts/MainLayout.vue'),
-    redirect: '/home',
+    redirect: '/chat',
     meta: { requiresAuth: true },
     children: [
       {
@@ -21,7 +22,7 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '首页' }
       },
       {
-        path: 'fpai/chat',
+        path: 'chat',
         name: 'FpaiChat',
         component: () => import('@/views/fpai/ChatView.vue'),
         meta: { title: '智能对话' }
@@ -67,6 +68,12 @@ const routes: RouteRecordRaw[] = [
         name: 'FpaiKnowledge',
         component: () => import('@/views/fpai/KnowledgeView.vue'),
         meta: { title: '知识库检索' }
+      },
+      {
+        path: 'fpai/rm',
+        name: 'FpaiRmWorkspace',
+        component: () => import('@/views/fpai/RmWorkspaceView.vue'),
+        meta: { title: 'RM工作台' }
       }
     ]
   },
@@ -81,18 +88,24 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/admin/user/index.vue'),
         meta: { title: '用户管理' }
       },
-      {
-        path: 'system/user/:id/detail',
-        name: 'UserDetail',
-        component: () => import('@/views/admin/user/user-allin.vue'),
-        meta: { title: '用户详情' }
-      },
       
       {
         path: 'system/config',
         name: 'ConfigManagement',
         component: () => import('@/views/admin/config/index.vue'),
         meta: { title: '系统参数管理' }
+      },
+      {
+        path: 'system/roles',
+        name: 'RoleManagement',
+        component: () => import('@/views/admin/system/roles/index.vue'),
+        meta: { title: '角色管理' }
+      },
+      {
+        path: 'system/menus',
+        name: 'MenuManagement',
+        component: () => import('@/views/admin/system/menus/index.vue'),
+        meta: { title: '菜单管理' }
       },
       {
         path: 'theme-settings',
@@ -111,6 +124,18 @@ const routes: RouteRecordRaw[] = [
         name: 'KnowledgeManagement',
         component: () => import('@/views/admin/knowledge/index.vue'),
         meta: { title: '知识库' }
+      },
+      {
+        path: 'agent',
+        name: 'AgentManagement',
+        component: () => import('@/views/admin/agent/index.vue'),
+        meta: { title: 'Agent管理' }
+      },
+      {
+        path: 'skill',
+        name: 'SkillManagement',
+        component: () => import('@/views/admin/skill/index.vue'),
+        meta: { title: 'Skill管理' }
       }
     ]
   }
@@ -129,6 +154,56 @@ router.beforeEach((to, _from, next) => {
     next({ path: '/login', query: { redirect: to.fullPath } })
   } else if (to.path === '/login' && userStore.token) {
     next({ path: '/' })
+  } else if (to.path.startsWith('/admin')) {
+    const roles = (userStore.userInfo as any)?.roles
+    const isAdmin = Array.isArray(roles) && roles.map((x: any) => String(x).toLowerCase()).includes('admin')
+    if (isAdmin) return next()
+
+    // 非 admin：允许进入“有后台菜单权限”的页面
+    // 后端菜单权限来自：/rbac/menus/me（由角色->菜单映射决定）
+    const toPath = (to.path || '').replace(/\/+$/, '') || '/'
+    const cacheKey = 'user_admin_menus'
+    const now = Date.now()
+    const cacheRaw = (sessionStorage.getItem(cacheKey) || '').trim()
+    let cached: { ts: number; menus: MenuItem[] } | null = null
+    if (cacheRaw) {
+      try {
+        cached = JSON.parse(cacheRaw) as { ts: number; menus: MenuItem[] }
+      } catch {
+        cached = null
+      }
+    }
+    const ttlMs = 30_000
+
+    const loadMenus = async () => {
+      if (cached && (now - cached.ts) < ttlMs && Array.isArray(cached.menus)) {
+        return cached.menus
+      }
+      const res = await getUserMenus()
+      const menus = Array.isArray(res.data) ? res.data : []
+      try {
+        sessionStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), menus }))
+      } catch {
+        // ignore
+      }
+      return menus
+    }
+
+    loadMenus()
+      .then((menus) => {
+        const normalizedMenus = (menus || []).filter((m) => (m.path || '').trim().length > 0)
+        const allowed =
+          toPath === '/admin' ||
+          normalizedMenus.some((m) => {
+            const menuPath = String(m.path || '').replace(/\/+$/, '')
+            if (!menuPath) return false
+            return toPath === menuPath || toPath.startsWith(menuPath + '/')
+          })
+
+        if (!allowed) next({ path: '/' })
+        else next()
+      })
+      .catch(() => next({ path: '/' }))
   } else {
     next()
   }
