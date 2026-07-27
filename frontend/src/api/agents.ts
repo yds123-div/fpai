@@ -8,7 +8,6 @@ export interface AgentProfile {
   name: string
   type: AgentType | string
   enabled: number
-  system_prompt: string
   skill_keys?: string[] | string
   model_id: number | null
   updated_by?: string
@@ -21,7 +20,6 @@ export interface AgentUpsertBody {
   name: string
   type?: AgentType | string
   enabled: boolean
-  system_prompt: string
   skill_keys?: string[]
   model_id?: number | null
 }

@@ -225,7 +225,6 @@ CREATE TABLE IF NOT EXISTS `agent_profiles` (
   `name` varchar(128) NOT NULL DEFAULT '',
   `type` varchar(32) NOT NULL DEFAULT 'custom',
   `enabled` tinyint(1) NOT NULL DEFAULT '1',
-  `system_prompt` longtext,
   `skill_keys` longtext,
   `model_id` bigint unsigned DEFAULT NULL,
   `created_by` varchar(64) NOT NULL DEFAULT '',
