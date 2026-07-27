@@ -24,7 +24,9 @@ CREATE TABLE IF NOT EXISTS agent_profiles (
   name VARCHAR(128) NOT NULL DEFAULT '',
   type VARCHAR(32) NOT NULL DEFAULT 'custom',        -- builtin | custom
   enabled TINYINT(1) NOT NULL DEFAULT 1,
-  system_prompt LONGTEXT,
+  system_prompt LONGTEXT,   -- DEPRECATED (ADR-0003 / T10 #28): prompts 集中到 git 文件库
+                            -- (agents/prompts/*.md)，新链路不再读此列。列 DROP + 前端
+                            -- prompt 编辑器移除延后到后续 PR（T10 用户决策：代码层先做）。
   skill_keys LONGTEXT,
   model_id BIGINT UNSIGNED NULL,
   created_by VARCHAR(64) NOT NULL DEFAULT '',
@@ -63,132 +65,6 @@ def _ensure_table() -> bool:
         return False
 
 
-def _seed_builtin_agents() -> None:
-    """
-    将当前代码内置的业务 agent 预置到 agent_profiles，便于“Agent 管理”页面直接编辑。
-    - 若记录不存在则创建
-    - 若记录已存在则不覆盖（避免覆盖管理员在页面里的修改）
-    """
-    if not _ensure_table():
-        return
-    try:
-        from agents.fund_agent.product_query.agent import DEFAULT_SYSTEM_PROMPT as PQ_PROMPT
-        from agents.fund_agent.product_interpret.agent import DEFAULT_SYSTEM_PROMPT as PI_PROMPT
-        from agents.fund_agent.product_compare.agent import DEFAULT_SYSTEM_PROMPT as PC_PROMPT
-        from agents.fund_agent.product_recommend.agent import DEFAULT_SYSTEM_PROMPT as PR_PROMPT
-        from agents.fund_agent.other.agent import DEFAULT_SYSTEM_PROMPT as O_PROMPT
-        from agents.fund_agent_framework import COORDINATOR_DEFAULT_SYSTEM_PROMPT
-    except Exception:
-        return
-
-    seeds = [
-        {
-            "agent_key": "product_query",
-            "name": "产品查询",
-            "type": "builtin",
-            "enabled": 1,
-            "system_prompt": PQ_PROMPT or "",
-            "skill_keys": '["product_query","product_compare"]',
-            "model_id": None,
-        },
-        {
-            "agent_key": "product_interpret",
-            "name": "产品解析",
-            "type": "builtin",
-            "enabled": 1,
-            "system_prompt": PI_PROMPT or "",
-            "skill_keys": '["product_compare"]',
-            "model_id": None,
-        },
-        {
-            "agent_key": "product_compare",
-            "name": "产品对比",
-            "type": "builtin",
-            "enabled": 1,
-            "system_prompt": PC_PROMPT or "",
-            "skill_keys": '["product_compare"]',
-            "model_id": None,
-        },
-        {
-            "agent_key": "product_recommend",
-            "name": "产品推荐",
-            "type": "builtin",
-            "enabled": 1,
-            "system_prompt": PR_PROMPT or "",
-            "skill_keys": '["product_recommend"]',
-            "model_id": None,
-        },
-        {
-            "agent_key": "task_planner",
-            "name": "任务规划",
-            "type": "builtin",
-            "enabled": 1,
-            "system_prompt": COORDINATOR_DEFAULT_SYSTEM_PROMPT or "",
-            "skill_keys": "[]",
-            "model_id": None,
-        },
-        {"agent_key": "other", "name": "其它问答", "type": "builtin", "enabled": 1, "system_prompt": O_PROMPT or "", "skill_keys": "[]", "model_id": None},
-    ]
-    try:
-        with get_connection() as conn:
-            if not conn:
-                return
-            with conn.cursor() as cur:
-                for s in seeds:
-                    # 1) 不存在则插入
-                    cur.execute(
-                        """
-                        INSERT IGNORE INTO agent_profiles (agent_key, name, type, enabled, system_prompt, skill_keys, model_id, created_by, updated_by, deleted_at)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, '', '', NULL)
-                        """,
-                        (
-                            s["agent_key"],
-                            s["name"],
-                            s["type"],
-                            int(s["enabled"]),
-                            s.get("system_prompt") or "",
-                            s.get("skill_keys") or "[]",
-                            s.get("model_id"),
-                        ),
-                    )
-                    # 2) 已存在但 prompt 为空时，补齐默认 prompt（不覆盖管理员已编辑的内容）
-                    cur.execute(
-                        """
-                        UPDATE agent_profiles
-                        SET
-                          name = CASE WHEN (name IS NULL OR name='') THEN %s ELSE name END,
-                          type = CASE WHEN (type IS NULL OR type='') THEN %s ELSE type END,
-                          enabled = CASE WHEN enabled IS NULL THEN %s ELSE enabled END,
-                          system_prompt = CASE WHEN (system_prompt IS NULL OR system_prompt='') THEN %s ELSE system_prompt END,
-                          skill_keys = CASE WHEN (skill_keys IS NULL OR skill_keys='') THEN %s ELSE skill_keys END
-                        WHERE agent_key=%s AND deleted_at IS NULL
-                        """,
-                        (
-                            s["name"],
-                            s["type"],
-                            int(s["enabled"]),
-                            s.get("system_prompt") or "",
-                            s.get("skill_keys") or "[]",
-                            s["agent_key"],
-                        ),
-                    )
-                    # product_recommend：为了避免历史 seed 错误（例如写成 product_query/product_compare）
-                    # 在旧记录 skill_keys 非空时无法被上面的 CASE 更新，这里做一次定向兜底修正。
-                    if s.get("agent_key") == "product_recommend":
-                        cur.execute(
-                            """
-                            UPDATE agent_profiles
-                            SET skill_keys=%s
-                            WHERE agent_key=%s AND deleted_at IS NULL
-                              AND (skill_keys IS NULL OR skill_keys='' OR skill_keys LIKE '%product_query%')
-                            """,
-                            (s.get("skill_keys") or "[]", s["agent_key"]),
-                        )
-            conn.commit()
-    except Exception as e:
-        logger.warning("seed builtin agents failed: %s", str(e))
-
-
 # ---- 轻量缓存：避免每次 run 都查库（仅用于读取） ----
 _CACHE_TTL_SECONDS = 30.0
 _cache: dict[str, tuple[float, dict[str, Any]]] = {}
@@ -219,7 +95,6 @@ def _cache_invalidate(agent_key: str | None = None) -> None:
 def list_agents(include_deleted: bool = False) -> list[dict[str, Any]]:
     if not _ensure_table():
         return []
-    _seed_builtin_agents()
     where = "" if include_deleted else "WHERE deleted_at IS NULL"
     try:
         with get_connection() as conn:
@@ -266,7 +141,6 @@ def get_agent(agent_key: str) -> dict[str, Any] | None:
         return cached
     if not _ensure_table():
         return None
-    _seed_builtin_agents()
     try:
         with get_connection() as conn:
             if not conn:

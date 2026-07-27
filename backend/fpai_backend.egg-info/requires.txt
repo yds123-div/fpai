@@ -14,7 +14,7 @@ pymilvus>=2.3.0
 httpx>=0.26.0
 
 [agent]
-agentscope>=0.0.8
+agentscope>=2.0.4
 
 [dev]
 pytest>=7.0

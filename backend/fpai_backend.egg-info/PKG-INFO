@@ -4,7 +4,7 @@ Version: 0.1.0
 Summary: 金融产品解析智能体后端（财富业务全场景智能问答与辅助决策）
 Author: FPAI Team
 License: Proprietary
-Requires-Python: >=3.10
+Requires-Python: >=3.12
 Description-Content-Type: text/markdown
 Requires-Dist: fastapi>=0.109.0
 Requires-Dist: uvicorn[standard]>=0.27.0
@@ -25,7 +25,7 @@ Requires-Dist: pytest>=7.0; extra == "dev"
 Requires-Dist: pytest-asyncio>=0.23.0; extra == "dev"
 Requires-Dist: httpx>=0.26.0; extra == "dev"
 Provides-Extra: agent
-Requires-Dist: agentscope>=0.0.8; extra == "agent"
+Requires-Dist: agentscope>=2.0.4; extra == "agent"
 
 # 金融产品解析智能体 - 后端
 
@@ -33,7 +33,7 @@ Requires-Dist: agentscope>=0.0.8; extra == "agent"
 
 ## 环境
 
-- Python 3.10+
+- Python 3.12+（代码含 PEP 701 嵌套引号 f-string，agentscope 2.0 亦要求 >=3.11）
 - 依赖：`pip install -r requirements.txt` 或 `pip install -e .`
 
 ## 启动
