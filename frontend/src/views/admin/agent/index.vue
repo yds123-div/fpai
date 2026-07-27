@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <h2 class="page-title">Agent 管理</h2>
-        <p class="page-desc">管理内置/自定义 Agent，支持编辑提示词与模型选择（仅管理员可用）。</p>
+        <p class="page-desc">管理内置/自定义 Agent，支持编辑模型选择与 Skills（仅管理员可用）。</p>
       </div>
       <div class="header-actions">
         <a-button @click="load" :loading="loading">刷新</a-button>
@@ -115,10 +115,6 @@
             :options="skillOptions"
           />
         </a-form-item>
-
-        <a-form-item label="System Prompt（提示词）">
-          <a-textarea v-model:value="form.system_prompt" :auto-size="{ minRows: 10, maxRows: 20 }" />
-        </a-form-item>
       </a-form>
     </a-modal>
   </div>
@@ -166,7 +162,6 @@ const form = ref<AgentUpsertBody>({
   name: '',
   type: 'custom',
   enabled: true,
-  system_prompt: '',
   skill_keys: [],
   model_id: null
 })
@@ -200,7 +195,7 @@ async function load() {
 
 function openCreate() {
   editingMode.value = 'create'
-  form.value = { agent_key: '', name: '', type: 'custom', enabled: true, system_prompt: '', skill_keys: [], model_id: null }
+  form.value = { agent_key: '', name: '', type: 'custom', enabled: true, skill_keys: [], model_id: null }
   modalOpen.value = true
 }
 
@@ -211,7 +206,6 @@ function openEdit(r: AgentProfile) {
     name: r.name || '',
     type: (r.type as any) || 'custom',
     enabled: !!r.enabled,
-    system_prompt: r.system_prompt || '',
     skill_keys: normalizeSkillKeys((r as any).skill_keys),
     model_id: r.model_id ?? null
   }

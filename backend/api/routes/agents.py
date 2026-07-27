@@ -3,10 +3,10 @@
 Agent 管理 API（MVP）：
 
 - 展示内置/自定义 agent 配置
-- 可编辑提示词(system_prompt)与模型选择(model_id)
+- 可编辑模型选择(model_id)/启用状态/skills
 - 可创建/删除 agent（custom）
 
-权限：仅 admin 可写；读接口也默认限制为 admin（避免泄露内部提示词）。
+权限：仅 admin 可写；读接口也默认限制为 admin（避免泄露内部配置）。
 """
 
 from __future__ import annotations
@@ -38,7 +38,6 @@ class AgentUpsertBody(BaseModel):
     name: str = Field(default="", description="展示名")
     type: str = Field(default="custom", description="builtin | custom")
     enabled: bool = True
-    system_prompt: str = Field(default="", description="system prompt")
     model_id: int | None = Field(default=None, description="模型配置ID（ai_models.id）")
     skill_keys: list[str] = Field(default_factory=list, description="该 agent 使用的 skill key 列表（按顺序尝试）")
 

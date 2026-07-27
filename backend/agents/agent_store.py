@@ -3,7 +3,7 @@ from __future__ import annotations
 """
 Agent 配置存储（MySQL）：
 
-- 用于 Agent 管理台：展示/编辑提示词(system_prompt)、模型选择(model_id)、启用/禁用等
+- 用于 Agent 管理台：展示/编辑模型选择(model_id)、启用/禁用、skills 等
 - MVP：custom agent 仅用于管理，不参与对话路由；内置 agent 支持配置覆盖
 """
 
@@ -24,9 +24,6 @@ CREATE TABLE IF NOT EXISTS agent_profiles (
   name VARCHAR(128) NOT NULL DEFAULT '',
   type VARCHAR(32) NOT NULL DEFAULT 'custom',        -- builtin | custom
   enabled TINYINT(1) NOT NULL DEFAULT 1,
-  system_prompt LONGTEXT,   -- DEPRECATED (ADR-0003 / T10 #28): prompts 集中到 git 文件库
-                            -- (agents/prompts/*.md)，新链路不再读此列。列 DROP + 前端
-                            -- prompt 编辑器移除延后到后续 PR（T10 用户决策：代码层先做）。
   skill_keys LONGTEXT,
   model_id BIGINT UNSIGNED NULL,
   created_by VARCHAR(64) NOT NULL DEFAULT '',
@@ -56,6 +53,11 @@ def _ensure_table() -> bool:
                 # 兼容老表：补列（若已存在会失败，忽略即可）
                 try:
                     cur.execute("ALTER TABLE agent_profiles ADD COLUMN skill_keys LONGTEXT")
+                except Exception:
+                    pass
+                # ADR-0003 决策 4（#42）：DROP 已退役的 system_prompt 列（已删则忽略）
+                try:
+                    cur.execute("ALTER TABLE agent_profiles DROP COLUMN system_prompt")
                 except Exception:
                     pass
             conn.commit()
@@ -103,7 +105,7 @@ def list_agents(include_deleted: bool = False) -> list[dict[str, Any]]:
             with conn.cursor() as cur:
                 cur.execute(
                     f"""
-                    SELECT agent_key, name, type, enabled, system_prompt, skill_keys, model_id, updated_by, updated_at, deleted_at
+                    SELECT agent_key, name, type, enabled, skill_keys, model_id, updated_by, updated_at, deleted_at
                     FROM agent_profiles
                     {where}
                     ORDER BY updated_at DESC
@@ -118,12 +120,11 @@ def list_agents(include_deleted: bool = False) -> list[dict[str, Any]]:
                     "name": r[1] or "",
                     "type": r[2] or "custom",
                     "enabled": int(r[3] or 0),
-                    "system_prompt": r[4] or "",
-                    "skill_keys": r[5] or "",
-                    "model_id": int(r[6]) if r[6] is not None else None,
-                    "updated_by": r[7] or "",
-                    "updated_at": str(r[8]) if r[8] is not None else None,
-                    "deleted_at": str(r[9]) if r[9] is not None else None,
+                    "skill_keys": r[4] or "",
+                    "model_id": int(r[5]) if r[5] is not None else None,
+                    "updated_by": r[6] or "",
+                    "updated_at": str(r[7]) if r[7] is not None else None,
+                    "deleted_at": str(r[8]) if r[8] is not None else None,
                 }
             )
         return out
@@ -148,7 +149,7 @@ def get_agent(agent_key: str) -> dict[str, Any] | None:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT agent_key, name, type, enabled, system_prompt, skill_keys, model_id, updated_by, updated_at, deleted_at
+                    SELECT agent_key, name, type, enabled, skill_keys, model_id, updated_by, updated_at, deleted_at
                     FROM agent_profiles
                     WHERE agent_key = %s
                     LIMIT 1
@@ -163,12 +164,11 @@ def get_agent(agent_key: str) -> dict[str, Any] | None:
             "name": r[1] or "",
             "type": r[2] or "custom",
             "enabled": int(r[3] or 0),
-            "system_prompt": r[4] or "",
-            "skill_keys": r[5] or "",
-            "model_id": int(r[6]) if r[6] is not None else None,
-            "updated_by": r[7] or "",
-            "updated_at": str(r[8]) if r[8] is not None else None,
-            "deleted_at": str(r[9]) if r[9] is not None else None,
+            "skill_keys": r[4] or "",
+            "model_id": int(r[5]) if r[5] is not None else None,
+            "updated_by": r[6] or "",
+            "updated_at": str(r[7]) if r[7] is not None else None,
+            "deleted_at": str(r[8]) if r[8] is not None else None,
         }
         _cache_set(agent_key, obj)
         return obj
@@ -187,7 +187,6 @@ def upsert_agent(payload: dict[str, Any], *, actor_user_id: str) -> bool:
     name = (payload.get("name") or "").strip()
     typ = (payload.get("type") or "custom").strip() or "custom"
     enabled = 1 if int(payload.get("enabled", 1) or 1) else 0
-    system_prompt = payload.get("system_prompt")
     skill_keys = payload.get("skill_keys")
     model_id = payload.get("model_id")
 
@@ -226,13 +225,12 @@ def upsert_agent(payload: dict[str, Any], *, actor_user_id: str) -> bool:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO agent_profiles (agent_key, name, type, enabled, system_prompt, skill_keys, model_id, created_by, updated_by, deleted_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NULL)
+                    INSERT INTO agent_profiles (agent_key, name, type, enabled, skill_keys, model_id, created_by, updated_by, deleted_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NULL)
                     ON DUPLICATE KEY UPDATE
                       name=VALUES(name),
                       type=VALUES(type),
                       enabled=VALUES(enabled),
-                      system_prompt=VALUES(system_prompt),
                       skill_keys=VALUES(skill_keys),
                       model_id=VALUES(model_id),
                       updated_by=VALUES(updated_by),
@@ -243,7 +241,6 @@ def upsert_agent(payload: dict[str, Any], *, actor_user_id: str) -> bool:
                         name,
                         typ,
                         enabled,
-                        system_prompt if system_prompt is not None else "",
                         sk_json,
                         mid,
                         actor_user_id or "",
