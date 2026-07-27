@@ -25,7 +25,6 @@ from api.middleware import add_trace_id_middleware, add_auth_middleware
 from api.routes import auth as auth_routes
 from api.routes import users as users_routes
 from api.routes import chat as chat_routes
-from api.routes import compare_recommend_report as compare_recommend_report_routes
 from api.routes import evidence_feedback_products_sessions as evidence_feedback_products_sessions_routes
 from api.routes import documents as documents_routes
 from api.routes import knowledge as knowledge_routes
@@ -108,7 +107,6 @@ def health():
 app.include_router(auth_routes.router, prefix="/api/v1")
 app.include_router(users_routes.router, prefix="/api/v1")
 app.include_router(chat_routes.router, prefix="/api/v1")
-app.include_router(compare_recommend_report_routes.router, prefix="/api/v1")
 app.include_router(evidence_feedback_products_sessions_routes.router, prefix="/api/v1")
 app.include_router(documents_routes.router, prefix="/api/v1")
 app.include_router(knowledge_routes.router, prefix="/api/v1")

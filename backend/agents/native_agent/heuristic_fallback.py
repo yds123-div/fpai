@@ -28,8 +28,7 @@ G5/#8 四项锁定（源码验证 ``_agent.py`` / ``shape_adapter.py``）：
 自写层（薄）：``HeuristicFallback``（降级路径主体）+ ``drive_with_fallback``（orchestrator
 级：catch A 异常 / 检测 B ``exceed_max_iters`` 标记 -> 标记原因 -> 调降级路径）。
 ``heuristic_classify`` / ``IntentCategory`` 自旧 ``fund_agent_framework`` 改造搬迁至此
-（栅栏 #3 是存活栅栏，旧框架 T10 删除后仍须存活；fund_agent_framework 现从此处 import，
-保持单一权威源、零行为变更）。
+（栅栏 #3 是存活栅栏，旧框架 T10 删除后仍须存活；此处为单一权威源，零行为变更）。
 
 复用：``heuristic_classify``、4 取数工具（``agents.tools.fund_tools``）、
 ``build_single_output``/``build_compare_output``（经 ``structured_collector.build_structured_output``）、

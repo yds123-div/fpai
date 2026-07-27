@@ -32,6 +32,13 @@
 
 边界：coordinator prompt 是否进库依赖 G2 / 栅栏 #2（plan-JSON 弃用后 coordinator 的命运），不在 E1 决定；E1 定义机制并迁移当前 prompt，coordinator prompt 去留随 G2 落定。
 
+## 执行（分阶段）
+
+决策 3（移除 UI prompt 编辑器）+ 决策 4（DROP `system_prompt` 列 + 清理 SQL/CRUD 引用）分两阶段执行，降低原子切换 PR 的体积与回滚粒度风险：
+
+- **代码层（T10 / #28，已做）**：`resolve_agent_overrides` 随 `runtime.py` 删除而移除；`agent_store._seed_builtin_agents` 不再写 `system_prompt`（列暂留 + DEPRECATED 注释）；`fund_agent_framework`/coordinator 等旧链路整体删除。
+- **延后到后续 PR**：DROP `agent_profiles.system_prompt` 列（`cloudrun/mysql/init.sql` schema 迁移 + 现有库 ALTER）+ 移除管理 UI prompt 编辑器（`frontend/src/views/admin/agent/index.vue`、`frontend/src/api/agents.ts`）+ 清理 `api/routes/agents.py` CRUD 对 `system_prompt` 的读写。列暂留为 dead column，后续 PR 一并清理。
+
 ## 备选方案（已否决）
 
 - **Python 常量集中到单模块**：保留 import 时 `assert`、零 loader、零文件 IO。否决——prompt 仍是 Python 三引号串、混在 `.py` 里，非开发 review 困难；金融场景需合规可独立 review。

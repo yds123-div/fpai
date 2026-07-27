@@ -229,7 +229,8 @@ def _make_fallback(
 # 验收 0：heuristic_classify 改造搬迁行为零变更
 # ===========================================================================
 def test_heuristic_classify_relocated_behavior_zero_change() -> None:
-    """自 fund_agent_framework 搬迁后行为不变（四分类 + 边沿）。"""
+    """heuristic_classify 行为不变（四分类 + 边沿）--T10 删除 fund_agent_framework 后
+    此函数已是单一权威源（存活栅栏 #3），不再有 legacy 别名需校验。"""
     assert heuristic_classify("对比 005827 和 161725") == "product_compare"
     assert heuristic_classify("近一月涨幅前5的基金") == "product_query"
     assert heuristic_classify("005827 怎么样") == "product_interpret"
@@ -238,9 +239,6 @@ def test_heuristic_classify_relocated_behavior_zero_change() -> None:
     # 无业务关键词 -> other
     assert heuristic_classify("定投怎么开户") == "other"
     assert heuristic_classify("") == "other"
-    # legacy 别名仍指向同一函数（单一权威源）
-    from agents.fund_agent_framework import _heuristic_classify
-    assert _heuristic_classify is heuristic_classify
 
 
 # ===========================================================================
